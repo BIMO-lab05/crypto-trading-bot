@@ -493,7 +493,7 @@ class SqueezeMomentumIndicator:
         # Ensure confidence is in valid range
         confidence = max(0.1, min(1.0, base_confidence))
 
-        return round(confidence, 2)
+        return round(confidence, 2)  # non-price-round
 
     def get_signal(self, df: pd.DataFrame) -> Dict:
         """
@@ -538,9 +538,13 @@ class SqueezeMomentumIndicator:
             "squeeze_on": bool(latest["squeeze_on"]),
             "squeeze_off": bool(latest["squeeze_off"]),
             "no_squeeze": bool(latest["no_squeeze"]),
-            "momentum": round(float(momentum), 4),
+            # Momentum is a linear-regression residual on price and so
+            # carries PRICE units; 4dp is exactly the ADAUSDT tick, which
+            # left ADA-scale momentum (~1e-4) one significant digit
+            # (PRICE-01, 487d1bd). Quantize at order time, not here.
+            "momentum": float(momentum),
             "color": latest["sqz_color"],
-            "strength": round(float(strength), 2),
+            "strength": round(float(strength), 2),  # non-price-round
             "confidence": float(latest["sqz_confidence"]),
             "bb_bands": {
                 "upper": float(latest["bb_upper"]),

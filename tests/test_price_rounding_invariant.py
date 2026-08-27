@@ -53,12 +53,14 @@ SCANNED_FILES: tuple[str, ...] = (
     # Phase 22: trading-engine serialization, classified site-by-site 2026-08-27
     "services/trading-engine/app/analytics/post_trade_analysis.py",
     "services/trading-engine/app/trading_enhancements/adaptive_rsi.py",
+    # Phase 22: the SQZMOM price-unit momentum path, cleaned 2026-08-27
+    "services/technical-analysis/app/handlers/sqzmom.py",
+    "services/technical-analysis/app/indicators/squeeze_momentum.py",
 )
 
 # Not yet covered, tracked deliberately:
 #   the OTHER services/technical-analysis/app/indicators/*.py modules
 #                                                     (~17 sites, PRICE-02)
-#   services/technical-analysis/app/handlers/sqzmom.py (4dp momentum)
 
 BANNED_NDIGITS = frozenset({2, 4})
 

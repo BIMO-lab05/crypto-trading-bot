@@ -106,7 +106,12 @@ async def get_sqzmom(
             },
             # Momentum
             "momentum": {
-                "value": round(float(latest["sqz_momentum"]), 4),
+                # SQZMOM momentum is a linear-regression residual on
+                # price, so it carries PRICE units. 4dp is exactly the
+                # ADAUSDT tick, so round(x, 4) erased the entire sub-tick
+                # component of every served momentum (PRICE-01, 487d1bd).
+                # Tick quantization belongs at order time, not here.
+                "value": float(latest["sqz_momentum"]),
                 "color": latest["sqz_color"],
                 "direction": "bullish" if latest["sqz_momentum"] > 0 else "bearish",
             },
@@ -125,7 +130,7 @@ async def get_sqzmom(
             # Signal
             "signal": {
                 "action": latest["sqz_signal"],
-                "confidence": round(float(latest["sqz_confidence"]), 2),
+                "confidence": round(float(latest["sqz_confidence"]), 2),  # non-price-round
                 "strength": signal_data.get("strength", 0.0),
             },
             # Current price
@@ -355,19 +360,19 @@ async def get_sqzmom_backtest_data(
             "statistics": {
                 "total_bars": total_bars,
                 "squeeze_on_count": squeeze_on_count,
-                "squeeze_on_pct": round(squeeze_on_count / total_bars * 100, 2)
+                "squeeze_on_pct": round(squeeze_on_count / total_bars * 100, 2)  # non-price-round
                 if total_bars > 0
                 else 0,
                 "buy_signals": buy_signals,
                 "sell_signals": sell_signals,
                 "hold_signals": total_bars - buy_signals - sell_signals,
-                "avg_momentum": round(float(backtest_df["sqz_momentum"].mean()), 4)
+                "avg_momentum": float(backtest_df["sqz_momentum"].mean())
                 if "sqz_momentum" in backtest_df
                 else 0,
-                "max_momentum": round(float(backtest_df["sqz_momentum"].max()), 4)
+                "max_momentum": float(backtest_df["sqz_momentum"].max())
                 if "sqz_momentum" in backtest_df
                 else 0,
-                "min_momentum": round(float(backtest_df["sqz_momentum"].min()), 4)
+                "min_momentum": float(backtest_df["sqz_momentum"].min())
                 if "sqz_momentum" in backtest_df
                 else 0,
             },
