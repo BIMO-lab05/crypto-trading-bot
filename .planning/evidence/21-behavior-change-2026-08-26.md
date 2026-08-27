@@ -55,8 +55,8 @@ for the record only). Two consecutive full runs are byte-identical:
 
 ```
 $ sha256sum run1.txt run2.txt
-cc697a79ebc6d404f19395b2eac956f5f0f6ba1eb6e53afe9242709ca17db756  run1.txt
-cc697a79ebc6d404f19395b2eac956f5f0f6ba1eb6e53afe9242709ca17db756  run2.txt
+fbf79c2ca9555b4abf673a2d013c25ef787dce8fbe837883d61f975594b4d0cc  run1.txt
+fbf79c2ca9555b4abf673a2d013c25ef787dce8fbe837883d61f975594b4d0cc  run2.txt
 ```
 
 `--check-determinism` is stronger than re-running: it replays every arm in
@@ -114,17 +114,30 @@ it does not read as one of Plan 21-06's five in-ensemble causes.
 
 ## The four-arm table
 
-Corpus: 11 constructed payloads, identical across arms.
+Corpus: 12 constructed payloads, identical across arms.
 
 | arm | payloads | signals | admitted | insufficient_category_diversity | mtf_demoted | no_directional_legs | rejected_prefill_unusable_stops | score_below_threshold |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` | 11 | 9 | **9** | 0 | 0 | 1 | 0 | 1 |
-| `+ATR` | 11 | 9 | **8** | 0 | 0 | 1 | 1 | 1 |
-| `+gates` | 11 | 4 | **4** | 5 | 1 | 1 | 0 | 0 |
-| `both` | 11 | 6 | **5** | 3 | 1 | 1 | 1 | 0 |
+| `baseline` | 12 | 9 | **9** | 0 | 0 | 2 | 0 | 1 |
+| `+ATR` | 12 | **10** | **9** | 0 | 0 | 1 | 1 | 1 |
+| `+gates` | 12 | 4 | **4** | 5 | 1 | 2 | 0 | 0 |
+| `both` | 12 | 7 | **6** | 3 | 1 | 1 | 1 | 0 |
 
-**Counts reconcile.** For every arm, `admitted + sum(rejections) = 11`:
-baseline 9+2, +ATR 8+3, +gates 4+7, both 5+6.
+**Counts reconcile.** For every arm, `admitted + sum(rejections) = 12`:
+baseline 9+3, +ATR 9+3, +gates 4+8, both 6+6.
+
+### The single most important number in this document
+
+**`+ATR` produces one MORE signal than `baseline` (10 vs 9) and admits exactly
+the SAME number (9 vs 9).**
+
+The arm contains two real, oppositely-signed effects and they **cancel exactly**:
+the `mean_reversion` SMA-deviation unlock adds one admission
+(`meanrev_alone_needs_atr`), and the ATR-fetch-failure rejection removes one
+(`atr_fetch_failure_multi_leg`). A single net before/after number for this phase
+would have read **"no change"** for an arm in which two things genuinely changed
+in opposite directions — which is precisely why the plan required per-fix
+ablation rather than one delta. The thesis is not argued here; it is measured.
 
 ### Read the per-cause columns with care
 
@@ -148,6 +161,7 @@ behaviour change. `opposed_legs_below_threshold` below is the worked example.
 | `mtf_not_demoted_control` | ADMIT c=0.530 | ADMIT c=0.470 | ADMIT c=0.530 | ADMIT c=0.470 |
 | `multi_indicator_alone` | ADMIT c=0.550 | ADMIT c=0.550 | ADMIT c=0.550 | ADMIT c=0.550 |
 | `rsi_plus_bollinger_route` | ADMIT c=0.480 | ADMIT c=0.480 | ADMIT c=0.480 | ADMIT c=0.480 |
+| `meanrev_alone_needs_atr` | REJ no_directional_legs | **ADMIT** `mean_reversion` | REJ no_directional_legs | **ADMIT** `mean_reversion` |
 | `no_legs_fire` | REJ no_directional_legs | REJ no_directional_legs | REJ no_directional_legs | REJ no_directional_legs |
 | `opposed_legs_below_threshold` | REJ score_below_threshold | REJ score_below_threshold | REJ **diversity** | REJ **diversity** |
 
@@ -156,14 +170,33 @@ behaviour change. `opposed_legs_below_threshold` below is the worked example.
 ### The +ATR arm owns BOTH ATR effects — including the decrease
 
 **Effect 1 — the `mean_reversion` SMA-deviation unlock (P21-1, Plan 21-03).**
-Visible in the *leg set*, not in the top-line count. In `baseline`,
-`atr_unlocks_sma_route_buy` fires on `simple_rsi` alone; in `+ATR` the same
-payload fires on `mean_reversion`+`simple_rsi`. The `mean_reversion` leg is
-present only when ATR is, because its `PRICE_BELOW_SMA` / `PRICE_ABOVE_SMA`
-sub-signals are gated on `atr_value > 0` and `indicators["ATR"]` was written by
-nothing before Plan 21-03. Directly probed: with a usable ATR the leg returns
+An admission **increase**, and it shows up in two distinct ways.
+
+*As a signal that would not otherwise exist.* `meanrev_alone_needs_atr` is
+rejected `no_directional_legs` in `baseline` and **admitted** in `+ATR`, carried
+by `mean_reversion` alone. This is the row that moves the top-line `signals`
+count from 9 to 10.
+
+*As a second agreeing leg.* In `baseline`, `atr_unlocks_sma_route_buy` fires on
+`simple_rsi` alone; in `+ATR` the same payload fires on
+`mean_reversion`+`simple_rsi`.
+
+The `mean_reversion` leg is present only when ATR is, because its
+`PRICE_BELOW_SMA` / `PRICE_ABOVE_SMA` sub-signals are gated on `atr_value > 0`
+and `indicators["ATR"]` was written by nothing before Plan 21-03. Directly
+probed: with a usable ATR the leg returns
 `BUY 0.35 ['RSI_OVERSOLD', 'PRICE_BELOW_SMA']`; with the ATR key removed and
 nothing else changed it returns `None`.
+
+**Why only one corpus row can show the increase at the top line, and it is
+structural rather than an artefact of corpus choice.** Every other RSI-route
+payload here sits at RSI ≤ 30, and `simple_rsi` uses the same 30/70 thresholds,
+so `simple_rsi` fires on those payloads too — `mean_reversion` joining can only
+change *which legs agree*, never *whether a signal exists*. Isolating the unlock
+therefore requires a payload `simple_rsi` cannot carry: at RSI 50 it returns
+`None`, and `mean_reversion` must reach `MIN_INDICATORS_ALIGNED = 2` from
+`BB_LOWER` (0.25) + `PRICE_BELOW_SMA` (0.15) = 0.40 — the second of which exists
+only with a usable ATR.
 
 **Effect 2 — the `UNUSABLE_LEVEL`-on-fetch-failure rejection (also P21-1, Plan
 21-03).** `atr_fetch_failure_multi_leg` is ADMITTED in `baseline` and `+gates`,
@@ -195,30 +228,34 @@ gates-on arms.
 
 Both are single-signed decreases.
 
-### The interaction is the most important number here
+### The interaction — the two arms are not additive
 
-`both` admits **5**, while `+gates` admits **4**. The +ATR unlock *rescues* two
+`both` admits **6**, while `+gates` admits **4**. The +ATR unlock *rescues* two
 payloads that the diversity guard alone rejects: once `mean_reversion` can see an
 ATR, `atr_unlocks_sma_route_buy`/`_sell` span {MOMENTUM, TREND} instead of
-{MOMENTUM} and clear the guard.
+{MOMENTUM} and clear the guard. So the two arms cannot simply be added — the ATR
+work partially offsets the gating work by supplying the second category the guard
+demands.
 
-**A caveat the operator should read before checking direction.** The plan's
-checkpoint criterion says "+ATR should show *more* admission from the
-`mean_reversion` SMA-deviation unlock". At the top line it does **not**: `+ATR`
-produces 9 signals, exactly as `baseline` does, and admits one **fewer**. That is
-not a contradiction of 21-03 — it is what happens when the guard is off. With the
-diversity guard disabled, `simple_rsi` alone already carried those payloads
-through, so adding `mean_reversion` changes *which legs agree* and the resulting
-confidence, not whether a signal is produced. The unlock's admission value is
-only realised **in the presence of the gates**, which is exactly what the
-`+gates` (4) → `both` (5) step measures. Reported as measured rather than as
-predicted.
+**Read the direction check on the right column.** The plan's checkpoint criterion
+says "+ATR should show *more* admission from the SMA-deviation unlock and *fewer*
+signals in the ATR-fetch-failure case". Both hold, and they hold on **different
+columns**:
 
-**Confidence moves down, not up, when the unlock fires** (0.510 → 0.430 and
-0.800 → 0.625). The weighted score is an average over directional legs, and
-`mean_reversion`'s conviction on the SMA route (0.35) sits below `simple_rsi`'s
-(0.51 / 0.80). More corroboration, lower reported conviction. Noted because the
-opposite is easy to assume.
+| | `baseline` | `+ATR` | reading |
+|---|---|---|---|
+| signals | 9 | **10** | the unlock — **more**, as predicted |
+| admitted | 9 | **9** | the unlock (+1) and the fetch-failure rejection (−1) cancel |
+
+An operator checking only `admitted` would see no movement and could read that as
+the unlock failing to appear. It has not failed to appear — it is exactly offset.
+Reported as measured rather than as predicted.
+
+**Confidence moves down, not up, when the unlock adds a second leg** (0.510 →
+0.430 and 0.800 → 0.625). The weighted score is an average over directional legs,
+and `mean_reversion`'s conviction on the SMA route (0.35) sits below
+`simple_rsi`'s (0.51 / 0.80). More corroboration, lower reported conviction.
+Noted because the opposite is easy to assume.
 
 ### Order-dependence, worked
 

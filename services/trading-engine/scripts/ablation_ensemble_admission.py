@@ -303,6 +303,24 @@ def build_corpus() -> List[Tuple[str, TradingSignal, float]]:
             indicators={"RSI": _rsi(28.0), "BOLLINGER_BANDS": _bollinger(100.0, 120.0, 100.0)},
             atr=usable,
         ),
+        # The ONLY scenario in this corpus that can show a top-line admission
+        # INCREASE for +ATR, and the reason is structural. Every other RSI-route
+        # payload here sits at RSI <= 30, which fires `simple_rsi` as well (both
+        # legs use 30/70), so `mean_reversion` joining can only change the leg
+        # set - never whether a signal exists at all. At RSI 50 `simple_rsi`
+        # returns None, so `mean_reversion` must carry the payload alone:
+        # BB_LOWER (0.25) + PRICE_BELOW_SMA (0.15) = 0.40 over two aligned
+        # sub-signals, spanning {VOLATILITY, TREND}. Without ATR the SMA branch
+        # is dead, leaving one sub-signal, which fails MIN_INDICATORS_ALIGNED.
+        _signal(
+            "meanrev_alone_needs_atr",
+            indicators={
+                "RSI": _rsi(50.0),
+                "BOLLINGER_BANDS": _bollinger(100.0, 120.0, 100.0),
+                "SMA": _sma(105.0),
+            },
+            atr=usable,
+        ),
         _signal(
             "no_legs_fire",
             indicators={"RSI": _rsi(50.0)},
