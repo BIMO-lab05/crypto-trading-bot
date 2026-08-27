@@ -239,7 +239,7 @@ class TrendFollowingStrategy(StrategyBase):
         highs: List[float],
         lows: List[float],
         closes: List[float],
-        period: int = None
+        period: Optional[int] = None
     ) -> Dict[str, Optional[float]]:
         """
         Calculate Average Directional Index
