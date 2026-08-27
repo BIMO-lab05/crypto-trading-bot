@@ -100,7 +100,7 @@ def test_single_firing_leg_passes_its_confidence_through(
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.36), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.36), current_price=100.0, capital=None
     )
 
     assert out is not None, (
@@ -119,7 +119,7 @@ def test_two_agreeing_legs_blend_by_weight(ensemble_module, monkeypatch):
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.60), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.60), current_price=100.0, capital=None
     )
 
     assert out is not None
@@ -135,7 +135,7 @@ def test_opposing_legs_cancel_to_hold(ensemble_module, monkeypatch):
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.60), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.60), current_price=100.0, capital=None
     )
 
     assert out is None, "opposing equal-conviction legs must net to HOLD"
@@ -152,7 +152,7 @@ def test_abstaining_leg_does_not_dilute(ensemble_module, monkeypatch):
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.36), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.36), current_price=100.0, capital=None
     )
 
     assert out is not None
@@ -168,7 +168,7 @@ def test_confidence_never_exceeds_one(ensemble_module, monkeypatch):
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 1.0), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 1.0), current_price=100.0, capital=None
     )
 
     assert out is not None
@@ -182,7 +182,7 @@ def test_min_agreeing_legs_still_enforced(ensemble_module, monkeypatch):
     monkeypatch.setattr(ens, "MIN_AGREEING_LEGS", 2, raising=False)
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.90), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.90), current_price=100.0, capital=None
     )
 
     assert out is None, "one firing leg must not satisfy MIN_AGREEING_LEGS=2"
@@ -194,7 +194,7 @@ def test_aggregation_threshold_still_enforced(ensemble_module, monkeypatch):
     ens = ensemble_module.MultiStrategyEnsemble()
 
     out = ens.generate_signal(
-        _agg_signal(SignalAction.BUY, 0.05), current_price=100.0, capital=100.0
+        _agg_signal(SignalAction.BUY, 0.05), current_price=100.0, capital=None
     )
 
     assert out is None, (

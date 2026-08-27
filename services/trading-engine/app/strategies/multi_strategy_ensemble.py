@@ -15,6 +15,7 @@ agreements (all 3 legs vote the same way) get full sizing; partial agreement get
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 import logging
+import math
 import json
 import os
 import threading
@@ -501,7 +502,12 @@ class MultiStrategyEnsemble:
             confidence = 0.5 if raw_confidence is None else float(raw_confidence)
             # IndicatorSignal.confidence is validated ge=0.0 le=1.0; an
             # out-of-range payload would raise ValidationError ON THE SIGNAL
-            # PATH, so clamp rather than trust the wire.
+            # PATH, so clamp rather than trust the wire. NaN is not a
+            # clampable value — min(1.0, nan) returns nan's operand order
+            # dependent result and would launder a failed payload into full
+            # confidence, so it takes the failure branch instead.
+            if math.isnan(confidence):
+                raise ValueError("confidence is NaN")
             confidence = max(0.0, min(1.0, confidence))
         except (TypeError, ValueError, KeyError):
             logger.warning(
