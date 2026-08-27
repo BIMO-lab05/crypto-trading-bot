@@ -865,6 +865,43 @@ class EnhancedSqueezeMomentum:
             )
             return None
 
+        # Reject a non-unique index (DEFER-21-01, 2026-08-27).
+        #
+        # MECHANISM: every label lookup in this module -- `prev_momentum.loc[row.name]`
+        # in the `sqz_color` apply, `result_df.loc[:row.name, 'squeeze_on']` in the
+        # confidence closure -- returns a SERIES instead of a scalar when the index
+        # carries a duplicate label. `_determine_histogram_color` then evaluates
+        # `pd.isna(<Series>)` in a boolean context and raises "The truth value of a
+        # Series is ambiguous", which the broad `except Exception` at the end of this
+        # method converts into `return None`.
+        #
+        # WHY THIS RAISES INSTEAD OF RETURNING None: a `None` from a VOTING indicator
+        # is invisible downstream. handlers/analysis.py:146 guards
+        # `if sqz_df is not None and not sqz_df.empty`, so the SQZMOM leg simply
+        # vanished from the aggregate vote -- the endpoint returned a well-formed 200
+        # computed from one fewer voter, with `"sqzmom": null` as the only trace. Loud
+        # failure is the ratified direction: the caller now gets a named error that
+        # identifies the offending candles instead of a silently degraded signal.
+        #
+        # PLACEMENT IS LOAD-BEARING: this sits BEFORE the `try:` below. Moved inside
+        # it, this module's own `except Exception` would swallow the ValueError
+        # straight back into the `None` the check exists to remove.
+        #
+        # The two checks above keep returning None deliberately. This ADDS a
+        # rejection; it does not convert the existing validation paths into raises.
+        if not df.index.is_unique:
+            duplicated = df.index[df.index.duplicated()].unique()
+            detail = (
+                f"Enhanced SQZMOM received a non-unique index: {len(duplicated)} "
+                f"duplicated label(s) {[str(label) for label in duplicated]}. "
+                f"Label lookups on a non-unique index return a Series instead of a "
+                f"scalar, so this frame cannot be scored. Rejecting it rather than "
+                f"returning None, which would silently drop the SQZMOM leg from the "
+                f"aggregate vote (DEFER-21-01)."
+            )
+            logger.error(detail)
+            raise ValueError(detail)
+
         try:
             # Create a copy to avoid modifying the original DataFrame
             result_df = df.copy()
