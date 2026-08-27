@@ -8,26 +8,32 @@ none of them. The established fix is full precision - float(x) - with tick
 quantization left to the trading-engine at order time (app/costs.py
 quantize_price, limit_order_executor._round_to_tick).
 
-Scope is a BOUNDED file tuple, deliberately: roughly 17 further sites live in
-services/technical-analysis/app/indicators/*.py and are not yet fixed.
-Adding a file here is a commitment that it is clean NOW. Grow the tuple as
+Scope is a BOUNDED file tuple, deliberately: 14 further sites live in seven
+services/technical-analysis/app/indicators/*.py modules that are not yet
+fixed - adx.py (6), ichimoku.py (2), moving_averages.py (2),
+bollinger_bands.py (1), macd.py (1), rsi.py (1), rsi_divergence.py (1)
+(PRICE-02). Adding a file here is a commitment that it is clean NOW. Grow the tuple as
 files are fixed - never add a file you have not just cleaned, or this guard
 lands red and gets disabled instead of obeyed.
 
 Dimensionless quantities (RSI 0-100, confidence 0-1, volume ratios, position
 fractions, strength scores) are legitimately rounded and must not trip this.
 Scope is per-file, so those sites are exempted per LINE: a round() call whose
-source line ends in the ALLOW_MARKER comment below is skipped. Four such
-sites survive in the two technical-analysis files scanned first - the
-strategy's `confidence`, and the indicator's `momentum_strength`,
-`band_width_ratio` and _calculate_confidence return. WS1-B's four
-trading-engine files carry twelve more (volume ratios, RSI, position
-fractions, strength scores). Phase 22 enrolled three further trading-engine
-files whose markers cover USD cost and volume aggregates, basis points, ratios,
-percents, seconds, and bounded readings (RSI 0-100, confidence and strength
-0-1) - those USD aggregates are why the marker means "not a per-unit price"
-rather than strictly "dimensionless". Marking a line is a claim about the
-value's units; do not use it to silence a price.
+source line ends in the ALLOW_MARKER comment below is skipped.
+
+The classification RULE - deliberately a rule, not a per-file inventory: a
+per-unit price, price level or price delta becomes float(x); a ratio,
+percent, basis point, count, score, duration or USD *aggregate* (P&L, fees,
+capital, commission) keeps round() and carries the marker. Those USD
+aggregates are why the marker means "not a per-unit price" rather than
+strictly "dimensionless". Marking a line is a claim about the value's units;
+do not use it to silence a price.
+
+The scanned files carry 72 markers in total. Both that figure and the 14
+sites above are REGENERABLE by scanning - re-derive them, never hand-maintain
+them. The per-site enumeration that used to sit here was accurate when it was
+written and rotted anyway, because it cited a line range that later moved.
+That is exactly the silent-regression failure this guard exists to prevent.
 """
 
 from __future__ import annotations
@@ -56,11 +62,10 @@ SCANNED_FILES: tuple[str, ...] = (
     # Phase 22: the SQZMOM price-unit momentum path, cleaned 2026-08-27
     "services/technical-analysis/app/handlers/sqzmom.py",
     "services/technical-analysis/app/indicators/squeeze_momentum.py",
+    # Phase 22: the SQZMOM backtest serializer - the literal 487d1bd
+    # round(entry_price, 2) pattern, cleaned 2026-08-27
+    "services/technical-analysis/backtesting/sqzmom_backtest.py",
 )
-
-# Not yet covered, tracked deliberately:
-#   the OTHER services/technical-analysis/app/indicators/*.py modules
-#                                                     (~17 sites, PRICE-02)
 
 BANNED_NDIGITS = frozenset({2, 4})
 

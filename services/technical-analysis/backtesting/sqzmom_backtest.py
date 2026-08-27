@@ -111,19 +111,26 @@ class Trade:
 
     def to_dict(self) -> Dict:
         """Convert trade to dictionary"""
+        # entry_price/exit_price are per-unit PRICES. round(x, 2) here was
+        # the original 487d1bd defect: on a sub-$1 symbol it snaps fills
+        # onto a 1-cent grid, which for ADA (tick 0.0001) is a 100x loss of
+        # resolution (PRICE-01). Every sqzmom backtest artifact produced
+        # BEFORE this fix reported quantized entries and is therefore not
+        # comparable to a post-fix run. Every other field below is a USD
+        # aggregate, ratio, percent, count or duration - not a price.
         return {
             'symbol': self.symbol,
             'direction': self.direction,
             'entry_time': self.entry_time.isoformat() if self.entry_time else None,
-            'entry_price': round(self.entry_price, 2),
+            'entry_price': float(self.entry_price),
             'exit_time': self.exit_time.isoformat() if self.exit_time else None,
-            'exit_price': round(self.exit_price, 2) if self.exit_price else None,
+            'exit_price': float(self.exit_price) if self.exit_price else None,
             'exit_reason': self.exit_reason,
-            'position_size': round(self.position_size, 4),
-            'pnl': round(self.pnl, 2),
-            'pnl_pct': round(self.pnl_pct, 2),
-            'commission': round(self.commission, 2),
-            'net_pnl': round(self.net_pnl, 2),
+            'position_size': round(self.position_size, 4),  # non-price-round
+            'pnl': round(self.pnl, 2),  # non-price-round
+            'pnl_pct': round(self.pnl_pct, 2),  # non-price-round
+            'commission': round(self.commission, 2),  # non-price-round
+            'net_pnl': round(self.net_pnl, 2),  # non-price-round
             'duration_hours': round(self.duration_hours, 1)
         }
 
@@ -557,24 +564,24 @@ class SQZMOMBacktester:
             'total_trades': total_trades,
             'winning_trades': num_wins,
             'losing_trades': num_losses,
-            'win_rate': round(win_rate, 2),
-            'total_pnl': round(total_pnl, 2),
-            'total_return_pct': round(total_return_pct, 2),
-            'sharpe_ratio': round(sharpe_ratio, 2),
-            'max_drawdown': round(max_drawdown, 2),
-            'profit_factor': round(profit_factor, 2),
-            'avg_win': round(avg_win, 2),
-            'avg_loss': round(avg_loss, 2),
-            'largest_win': round(largest_win, 2),
-            'largest_loss': round(largest_loss, 2),
+            'win_rate': round(win_rate, 2),  # non-price-round
+            'total_pnl': round(total_pnl, 2),  # non-price-round
+            'total_return_pct': round(total_return_pct, 2),  # non-price-round
+            'sharpe_ratio': round(sharpe_ratio, 2),  # non-price-round
+            'max_drawdown': round(max_drawdown, 2),  # non-price-round
+            'profit_factor': round(profit_factor, 2),  # non-price-round
+            'avg_win': round(avg_win, 2),  # non-price-round
+            'avg_loss': round(avg_loss, 2),  # non-price-round
+            'largest_win': round(largest_win, 2),  # non-price-round
+            'largest_loss': round(largest_loss, 2),  # non-price-round
             'avg_trade_duration_hours': round(avg_duration, 1),
             'long_trades': len(long_trades),
             'short_trades': len(short_trades),
-            'long_win_rate': round(long_win_rate, 2),
-            'short_win_rate': round(short_win_rate, 2),
-            'gross_profit': round(gross_profit, 2),
-            'gross_loss': round(gross_loss, 2),
-            'final_capital': round(self.current_capital, 2),
+            'long_win_rate': round(long_win_rate, 2),  # non-price-round
+            'short_win_rate': round(short_win_rate, 2),  # non-price-round
+            'gross_profit': round(gross_profit, 2),  # non-price-round
+            'gross_loss': round(gross_loss, 2),  # non-price-round
+            'final_capital': round(self.current_capital, 2),  # non-price-round
             'trades': [t.to_dict() for t in trades]
         }
 
@@ -641,12 +648,12 @@ class SQZMOMBacktester:
             'total_trades': total_trades,
             'winning_trades': winning_trades,
             'losing_trades': losing_trades,
-            'win_rate': round(combined_win_rate, 2),
-            'total_pnl': round(combined_pnl, 2),
-            'total_return_pct': round(combined_return_pct, 2),
-            'avg_sharpe_ratio': round(avg_sharpe, 2),
-            'avg_max_drawdown': round(avg_max_dd, 2),
-            'avg_profit_factor': round(avg_profit_factor, 2)
+            'win_rate': round(combined_win_rate, 2),  # non-price-round
+            'total_pnl': round(combined_pnl, 2),  # non-price-round
+            'total_return_pct': round(combined_return_pct, 2),  # non-price-round
+            'avg_sharpe_ratio': round(avg_sharpe, 2),  # non-price-round
+            'avg_max_drawdown': round(avg_max_dd, 2),  # non-price-round
+            'avg_profit_factor': round(avg_profit_factor, 2)  # non-price-round
         }
 
         logger.info(f"Multi-symbol backtest completed: {total_trades} total trades, "
@@ -745,7 +752,7 @@ class SQZMOMBacktester:
         return {
             'symbol': symbol,
             'best_params': best_params,
-            'best_return': round(best_return, 2),
+            'best_return': round(best_return, 2),  # non-price-round
             'best_metrics': best_metrics,
             'all_results': all_results[:20],  # Top 20 results
             'total_combinations_tested': len(combinations)
