@@ -140,7 +140,16 @@ class SignalAggregator:
         RESEARCH-BACKED: RSI(9) optimal for crypto markets
         - More responsive to price changes in volatile markets
         - Better captures momentum shifts in 24/7 crypto trading
-        - Research thresholds: 75/25 (not 70/30) for reduced false signals
+        - Overbought/oversold thresholds are applied by the TA service, not by
+          this client: 80/20 (not the 70/30 standard-markets pair), declared in
+          technical-analysis app/indicators/rsi.py:80-81. They come from
+          RSICalculator's constructor defaults — no Settings field overrides
+          them and every construction site passes `period` only, so 80/20 is
+          what the endpoint this method calls actually applies.
+          2026-08-27 (P21-8): this line previously advertised a different
+          threshold pair, one that no code in either service has ever applied.
+          The stale numbers are deliberately not repeated here — a doc guard
+          greps for them. Re-read rsi.py before citing a number.
         """
         try:
             url = f"{self.base_url}/api/v1/indicators/rsi/{symbol}"

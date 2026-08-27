@@ -99,12 +99,20 @@ class AdvancedPositionSizer:
     - Risk parity for portfolio allocation
 
     Usage:
+        from app.config import get_settings
+
         sizer = AdvancedPositionSizer(config)
 
+        # `capital` is account equity. Resolve it from this service's own
+        # Settings, never from a literal. A bare 10000 is numerically correct
+        # for the $10,000 research account (ADR-029) and is STILL a defect: it
+        # bypasses the declared config and silently decouples on the next
+        # re-scale. In-container code reads Settings.paper_initial_balance and
+        # must never `import shared.account` (.claude/rules/money.md).
         result = sizer.calculate_kelly(
             win_rate=0.55,
             reward_risk_ratio=2.0,
-            capital=10000,
+            capital=get_settings().paper_initial_balance,
             price=50000
         )
     """

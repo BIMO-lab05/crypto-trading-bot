@@ -100,6 +100,15 @@ class HybridStrategyRouter:
         default — a missing ADX must be visible to the caller so the fallback
         classifier is entered deliberately and logged, rather than the router
         silently classifying every bar as RANGING (the 2026-05-06 bug).
+
+        2026-08-27 (P21-8): a second lookup that read
+        `indicators["ATR"].metadata["adx"]` was deleted from here. No producer
+        has ever written an `adx` key onto an ATR signal, so the branch was
+        already dead — and Plan 21-03 now injects a synthetic `indicators["ATR"]`
+        whose metadata carries `atr` / `atr_pct` / `atr_fraction` and
+        deliberately no `adx`. Leaving the branch would have turned an
+        unreachable read into a reachable one against a key that still does not
+        exist. ADX is its own indicator; do not re-add a nested source.
         """
         adx_signal = indicators.get("ADX")
         adx_value = None
@@ -107,10 +116,6 @@ class HybridStrategyRouter:
             adx_value = getattr(adx_signal, "value", None)
             if adx_value is None and getattr(adx_signal, "metadata", None):
                 adx_value = adx_signal.metadata.get("adx")
-        if adx_value is None:
-            atr_signal = indicators.get("ATR")
-            if atr_signal and getattr(atr_signal, "metadata", None):
-                adx_value = atr_signal.metadata.get("adx")
         if adx_value is None:
             return None
         try:
@@ -139,6 +144,10 @@ class HybridStrategyRouter:
         # Old code looked at atr_signal.metadata['adx'] which never existed,
         # so the router silently defaulted to RANGING every cycle regardless
         # of regime — a load-bearing bug for trend-following profitability.
+        # 2026-08-27 (P21-8): the residual ATR-metadata lookup that survived
+        # that fix as a dead second branch is now deleted from extract_adx, so
+        # this note is history only — there is no ATR fallback left to describe.
+        # No threshold value changed.
         adx_value = self.extract_adx(indicators)
 
         if adx_value is not None:
