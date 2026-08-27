@@ -132,12 +132,16 @@ class SignalAggregator:
         self,
         symbol: str,
         interval: str = "60",
-        period: int = 9,  # RESEARCH: Period 9 optimal for crypto (more responsive to volatility)
+        period: Optional[int] = None,
     ) -> Optional[IndicatorSignal]:
         """
         Fetch RSI indicator with research-optimized period
 
-        RESEARCH-BACKED: RSI(9) optimal for crypto markets
+        RESEARCH-BACKED: a short RSI lookback is optimal for crypto markets.
+        The lookback is declared rather than written here — `period` resolves
+        from `settings.rsi_period` when the caller passes none. Naming the
+        setting instead of the number keeps this docstring true the moment
+        the setting moves.
         - More responsive to price changes in volatile markets
         - Better captures momentum shifts in 24/7 crypto trading
         - Overbought/oversold thresholds are applied by the TA service, not by
@@ -151,6 +155,21 @@ class SignalAggregator:
           The stale numbers are deliberately not repeated here — a doc guard
           greps for them. Re-read rsi.py before citing a number.
         """
+        # DEFER-21-03 (2026-08-27): the RSI lookback default was an inline
+        # literal in this signature while technical-analysis declared
+        # `default_rsi_period` independently. It resolves from engine Settings
+        # per call — never in the parameter default, which Python evaluates
+        # once at import and would freeze (.claude/rules/money.md). An
+        # explicit caller-supplied lookback still outranks the setting.
+        #
+        # This request deliberately KEEPS sending the lookback: 22.1-CONTEXT
+        # item B locks engine-Settings routing here, NOT the omission contract
+        # that tests/test_engine_param_omission.py holds for fetch_sma /
+        # fetch_ema / fetch_macd / fetch_ichimoku. Do not convert this site to
+        # parameter omission.
+        # NO VALUE CHANGED: the resolved default is the literal it replaced.
+        period = self.settings.rsi_period if period is None else period
+
         try:
             url = f"{self.base_url}/api/v1/indicators/rsi/{symbol}"
             params = {"interval": interval, "period": period}
@@ -224,15 +243,25 @@ class SignalAggregator:
         Fetch Bollinger Bands indicator with research-optimized parameters
 
         RESEARCH-OPTIMIZED 2025-11-29:
-        - Wider bands (2.5 SD) work better for crypto volatility
+        - Wider bands work better for crypto volatility; the multiplier is
+          declared as `settings.bollinger_std_dev` rather than written here
         - Reduces false breakout signals in volatile markets
         """
         try:
             url = f"{self.base_url}/api/v1/indicators/bollinger/{symbol}"
-            # RESEARCH-OPTIMIZED 2025-11-29: Use 2.5 SD for crypto
+            # DEFER-21-03 (2026-08-27): the band-width multiplier was an
+            # inline literal here while technical-analysis declared
+            # `default_bb_std` independently. It resolves from engine
+            # Settings per call.
+            #
+            # This request deliberately KEEPS sending the multiplier:
+            # 22.1-CONTEXT item B locks engine-Settings routing here, NOT the
+            # omission contract in tests/test_engine_param_omission.py. Do not
+            # convert this site to parameter omission.
+            # NO VALUE CHANGED: the default is the literal it replaced.
             params = {
                 "interval": interval,
-                "std_dev": 2.5,  # Widened for crypto volatility (prev: 2.0)
+                "std_dev": self.settings.bollinger_std_dev,
             }
 
             response = await self.client.get(url, params=params)
@@ -353,7 +382,19 @@ class SignalAggregator:
         """
         try:
             url = f"{self.base_url}/api/v1/indicators/trend/{symbol}"
-            params = {"interval": interval, "limit": 300}
+            # DEFER-21-03 (2026-08-27): the kline count was an inline literal
+            # here while technical-analysis declared `default_trend_limit`
+            # independently. It resolves from engine Settings per call.
+            #
+            # This request deliberately KEEPS sending the kline count:
+            # 22.1-CONTEXT item B locks engine-Settings routing here, NOT the
+            # omission contract in tests/test_engine_param_omission.py. Do not
+            # convert this site to parameter omission.
+            # NO VALUE CHANGED: the default is the literal it replaced.
+            params = {
+                "interval": interval,
+                "limit": self.settings.trend_filter_kline_limit,
+            }
 
             response = await self.client.get(url, params=params)
             response.raise_for_status()

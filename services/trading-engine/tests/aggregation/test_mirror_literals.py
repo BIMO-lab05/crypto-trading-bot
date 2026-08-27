@@ -29,6 +29,20 @@ proves a literal is gone; it does not prove the setting is wired. Each
 converted site therefore also has a test that moves the setting to a
 non-default value and asserts the gate moves with it.
 
+DEFER-21-03 (2026-08-27) closed the last three sites of the same class,
+all of them request parameters the engine sends to technical-analysis:
+
+| Site | Resolution |
+|---|---|
+| `signal_aggregator.fetch_rsi` lookback default | `settings.rsi_period` |
+| `signal_aggregator.fetch_bollinger_bands` band width | `settings.bollinger_std_dev` |
+| `signal_aggregator.fetch_trend_filter` kline count | `settings.trend_filter_kline_limit` |
+
+Those three are the MIRROR of the omission contract in
+`tests/test_engine_param_omission.py`, not an instance of it: 22.1-CONTEXT
+item B has the engine keep sending them with an engine-side declaration.
+NO VALUE CHANGED there either — 9, 2.5 and 300 are the literals replaced.
+
 Run from `services/trading-engine` with `--no-cov` (see .claude/rules/testing.md).
 """
 
@@ -81,11 +95,43 @@ def test_sqzmom_volume_ratio_min_defaults_to_the_literal_it_replaced():
     )
 
 
+
+def test_rsi_period_defaults_to_the_literal_it_replaced():
+    """9 is the lookback lifted out of fetch_rsi's parameter default."""
+    assert get_settings().rsi_period == 9, (
+        "9 was the inline default on signal_aggregator.fetch_rsi's `period` "
+        "parameter, and it is the lookback the engine sends on every RSI "
+        "request. Moving it changes the traded signal."
+    )
+
+
+def test_bollinger_std_dev_defaults_to_the_literal_it_replaced():
+    """2.5 is the band-width multiplier lifted out of the Bollinger request."""
+    assert get_settings().bollinger_std_dev == 2.5, (
+        "2.5 was the inline multiplier in the request params of "
+        "signal_aggregator.fetch_bollinger_bands (widened for crypto "
+        "volatility). Moving it changes the traded signal."
+    )
+
+
+def test_trend_filter_kline_limit_defaults_to_the_literal_it_replaced():
+    """300 is the kline count lifted out of the trend-filter request."""
+    assert get_settings().trend_filter_kline_limit == 300, (
+        "300 was the inline kline count in the request params of "
+        "signal_aggregator.fetch_trend_filter; the 50/200 EMA pair needs that "
+        "much history to be defined at all."
+    )
+
+
 @pytest.mark.parametrize(
     "field_name,ge,le",
     [
         ("adx_weak_trend_threshold", 0.0, 100.0),
         ("sqzmom_volume_ratio_min", 0.0, 10.0),
+        # DEFER-21-03. 1.0-4.0 is the bound technical-analysis already
+        # enforces on its own Bollinger route, so an engine-side override
+        # TA would reject cannot even be declared here.
+        ("bollinger_std_dev", 1.0, 4.0),
     ],
 )
 def test_mirror_field_is_a_bounded_float(field_name, ge, le):
@@ -105,6 +151,36 @@ def test_mirror_field_is_a_bounded_float(field_name, ge, le):
 
 
 @pytest.mark.parametrize(
+    "field_name,ge,le",
+    [
+        ("rsi_period", 2, 100),
+        # 200-1000 is technical-analysis's own trend-route bound.
+        ("trend_filter_kline_limit", 200, 1000),
+    ],
+)
+def test_mirror_field_is_a_bounded_int(field_name, ge, le):
+    """Sibling of the bounded-float test for the two integer mirrors.
+
+    These two cannot ride `test_mirror_field_is_a_bounded_float`'s parametrize:
+    that test asserts `field.annotation is float`, so an int field would fail on
+    the annotation rather than on the bound the test exists to check — a red
+    test that proves nothing about the bound.
+
+    Same ASVS V14 reasoning as the float case: config reaching a money path is
+    range-checked at the declaration. An unbounded kline count is also a
+    denial-of-service knob against technical-analysis.
+    """
+    field = Settings.model_fields[field_name]
+    assert field.annotation is int, f"{field_name} must be an int Field"
+    assert _bound(field_name, annotated_types.Ge) == ge, (
+        f"{field_name} lost its ge bound — an override below {ge} would be accepted"
+    )
+    assert _bound(field_name, annotated_types.Le) == le, (
+        f"{field_name} lost its le bound — an override above {le} would be accepted"
+    )
+
+
+@pytest.mark.parametrize(
     "field_name,expected_phrase",
     [
         # Mirrored: the description must name the TA field it must not diverge from.
@@ -112,6 +188,10 @@ def test_mirror_field_is_a_bounded_float(field_name, ge, le):
         # Engine-owned: the description must say outright that there is no TA field,
         # so a reader does not go hunting for one that does not exist.
         ("sqzmom_volume_ratio_min", "no counterpart"),
+        # DEFER-21-03: all three mirror a TA declaration and must name it.
+        ("rsi_period", "default_rsi_period"),
+        ("bollinger_std_dev", "default_bb_std"),
+        ("trend_filter_kline_limit", "default_trend_limit"),
     ],
 )
 def test_mirror_field_description_names_its_ta_counterpart_or_says_there_is_none(
@@ -315,6 +395,148 @@ async def test_sqzmom_volume_gate_resolves_from_settings(
 
 
 # ---------------------------------------------------------------------------
+# DEFER-21-03 — the three request params are wired, not merely de-literalled
+#
+# Same doctrine as the block above, one layer out: these sites do not feed a
+# comparison, they feed the OUTBOUND REQUEST. So the observable that has to
+# move is the captured `params` dict, not a returned SignalAction.
+#
+# Vacuity guard: every fetcher below wraps its body in `except Exception:
+# return None`, and `captured` is written before the payload is parsed. A stub
+# missing one key would therefore leave the params assertion passing while the
+# call silently failed. Each test asserts the fetcher returned non-None FIRST,
+# exactly as `test_adx_vote_gate_resolves_from_settings` does above.
+# ---------------------------------------------------------------------------
+
+
+def _capturing_client(captured, payload):
+    """AsyncMock that records the outbound params and replies with `payload`."""
+
+    async def _capture(url, params=None, **kwargs):
+        captured["url"] = url
+        captured["params"] = params
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json = MagicMock(return_value=payload)
+        return response
+
+    return AsyncMock(side_effect=_capture)
+
+
+# Payloads in the exact shape each fetcher parses. Note the envelopes differ:
+# fetch_trend_filter reads `result["data"]`, the other two read the top level.
+# Reusing one shape across all three would make the fetcher swallow a KeyError,
+# return None, and leave the params assertion vacuous.
+_RSI_PAYLOAD = {"signal": "BUY", "confidence": 0.85, "rsi": 35.5}
+
+_BOLLINGER_PAYLOAD = {
+    "signal": "BUY",
+    "confidence": 0.80,
+    "current_price": 50000.0,
+    "upper_band": 52000.0,
+    "middle_band": 50000.0,
+    "lower_band": 48000.0,
+}
+
+_TREND_PAYLOAD = {
+    "data": {
+        "signal": "BUY",
+        "confidence": 0.90,
+        "spread_pct": 5.2,
+        "trend": "UPTREND",
+        "fast_ema": 50500.0,
+        "slow_ema": 48000.0,
+    }
+}
+
+
+async def _captured_params(monkeypatch, field, value, payload, call):
+    """Move `field` off its default, run `call`, return the outbound params.
+
+    `SignalAggregator.__init__` does `self.settings = get_settings()` — the
+    cached singleton — so patching an attribute on that object is what the
+    instance reads. This is the mechanism the ADX wiring test above already
+    uses; do not swap in a freshly constructed Settings, which the aggregator
+    would never consult.
+    """
+    monkeypatch.setattr(get_settings(), field, value)
+
+    captured = {}
+    agg = SignalAggregator()
+    agg.client.get = _capturing_client(captured, payload)
+    try:
+        result = await call(agg)
+    finally:
+        await agg.close()
+
+    assert result is not None, (
+        f"the fetcher returned None, so it swallowed an exception before "
+        f"parsing — the assertion on {field} reaching the wire would be vacuous"
+    )
+    return captured.get("params") or {}
+
+
+async def test_rsi_period_reaches_the_outbound_request(monkeypatch):
+    """With no caller-supplied period, the setting must be what gets sent."""
+    params = await _captured_params(
+        monkeypatch, "rsi_period", 11, _RSI_PAYLOAD,
+        lambda agg: agg.fetch_rsi("BTCUSDT", "60"),
+    )
+    assert params.get("period") == 11, (
+        f"fetch_rsi put period={params.get('period')!r} on the wire while "
+        f"settings.rsi_period was 11. The request is not reading the setting; "
+        f"deleting the literal alone would pass a source grep and still be the "
+        f"same defect. Full captured params: {params}"
+    )
+
+
+async def test_an_explicit_rsi_period_still_outranks_the_setting(monkeypatch):
+    """The setting is a DEFAULT, not an override.
+
+    `tests/unit/test_signal_aggregator.py` calls `fetch_rsi(..., period=14)`
+    and asserts on the result. If the body resolution ignored the argument, the
+    engine would silently send its own lookback for every explicit caller.
+    """
+    params = await _captured_params(
+        monkeypatch, "rsi_period", 11, _RSI_PAYLOAD,
+        lambda agg: agg.fetch_rsi("BTCUSDT", "60", period=14),
+    )
+    assert params.get("period") == 14, (
+        f"an explicit period=14 was overwritten by settings.rsi_period=11 "
+        f"(sent {params.get('period')!r}). Resolution order is wrong: the "
+        f"setting may only fill in when the caller passes None."
+    )
+
+
+async def test_bollinger_std_dev_reaches_the_outbound_request(monkeypatch):
+    """The band-width multiplier on the wire must track the setting."""
+    params = await _captured_params(
+        monkeypatch, "bollinger_std_dev", 3.0, _BOLLINGER_PAYLOAD,
+        lambda agg: agg.fetch_bollinger_bands("BTCUSDT", "60"),
+    )
+    assert params.get("std_dev") == 3.0, (
+        f"fetch_bollinger_bands put std_dev={params.get('std_dev')!r} on the "
+        f"wire while settings.bollinger_std_dev was 3.0. Band width decides "
+        f"every BOLLINGER_BANDS vote, so a stuck value is a stuck voter. "
+        f"Full captured params: {params}"
+    )
+
+
+async def test_trend_filter_kline_limit_reaches_the_outbound_request(monkeypatch):
+    """The kline count on the wire must track the setting."""
+    params = await _captured_params(
+        monkeypatch, "trend_filter_kline_limit", 500, _TREND_PAYLOAD,
+        lambda agg: agg.fetch_trend_filter("BTCUSDT", "60"),
+    )
+    assert params.get("limit") == 500, (
+        f"fetch_trend_filter put limit={params.get('limit')!r} on the wire "
+        f"while settings.trend_filter_kline_limit was 500. Too few klines and "
+        f"the 200 EMA is undefined, which silences the GATEKEEPER leg. "
+        f"Full captured params: {params}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Source guard — a converted site must not silently regain an inline literal
 # ---------------------------------------------------------------------------
 
@@ -361,6 +583,25 @@ BANNED_LITERALS = [
         "aggregation/market_regime.py",
         r"adx_period",
         "the dead adx_period parameter must be gone, not merely disconnected",
+    ),
+    # DEFER-21-03. These three are deliberately narrow: they match the
+    # assignment/param form only, so the removal-rationale comments left at
+    # each site (which name the settings, never the numbers) cannot trip them.
+    (
+        "signal_aggregator.py",
+        r"period:\s*int\s*=\s*9\b",
+        "fetch_rsi's lookback must resolve from settings.rsi_period in the "
+        "method body; a Settings read in a parameter default freezes at import",
+    ),
+    (
+        "signal_aggregator.py",
+        r'"std_dev":\s*2\.5',
+        "the Bollinger request must send settings.bollinger_std_dev",
+    ),
+    (
+        "signal_aggregator.py",
+        r'"limit":\s*300',
+        "the trend-filter request must send settings.trend_filter_kline_limit",
     ),
 ]
 

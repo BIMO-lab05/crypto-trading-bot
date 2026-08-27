@@ -364,6 +364,68 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Mirror-literal cluster, second tranche (DEFER-21-03, 2026-08-27; recorded
+    # in `.planning/phases/21-ta-aggregator-widening-leakage-net/deferred-items.md`).
+    # Three more numbers the engine hardcoded while technical-analysis declared
+    # its own copy, all on the traded signal path:
+    #   - `signal_aggregator.fetch_rsi` — the RSI lookback default the engine
+    #     sent on every RSI request. TA declares `default_rsi_period`.
+    #   - `signal_aggregator.fetch_bollinger_bands` — the band-width multiplier
+    #     on the outbound request params. TA declares `default_bb_std`.
+    #   - `signal_aggregator.fetch_trend_filter` — the kline count on the
+    #     outbound request params. TA declares `default_trend_limit`.
+    # Same defect shape as the tranche above: each agreed with its counterpart
+    # only by coincidence, so a single TA-side override would have moved the TA
+    # number and left the engine sending the old one, silently.
+    #
+    # These three requests deliberately KEEP sending their parameters. That is
+    # the opposite of the contract `tests/test_engine_param_omission.py` holds
+    # for fetch_sma/fetch_ema/fetch_macd/fetch_ichimoku (where the engine must
+    # NOT send what TA owns); 22.1-CONTEXT item B locks engine-Settings routing
+    # here instead, so do not "fix" these into omission.
+    #
+    # The ge/le bounds below are deliberately the bounds technical-analysis
+    # already enforces on its own routes (band multiplier 1.0-4.0 in TA
+    # `handlers/indicators.py`, trend kline count 200-1000 in TA `main.py`), so
+    # an engine-side override that TA's endpoint would reject cannot even be
+    # declared: it fails here, at Settings construction, instead of arriving as
+    # a 422 from a service that is not this one.
+    # NO VALUE CHANGED — 9, 2.5 and 300 are the literals they replace.
+    rsi_period: int = Field(
+        default=9,
+        ge=2,
+        le=100,
+        description=(
+            "RSI lookback the engine sends on its outbound RSI request. "
+            "Mirrors technical-analysis default_rsi_period. An explicit "
+            "caller-supplied period still outranks this default."
+        ),
+    )
+
+    bollinger_std_dev: float = Field(
+        default=2.5,
+        ge=1.0,
+        le=4.0,
+        description=(
+            "Standard-deviation multiplier the engine sends on its outbound "
+            "Bollinger Bands request (widened for crypto volatility). Mirrors "
+            "technical-analysis default_bb_std; the bounds are TA's own route "
+            "bounds."
+        ),
+    )
+
+    trend_filter_kline_limit: int = Field(
+        default=300,
+        ge=200,
+        le=1000,
+        description=(
+            "Number of klines the engine asks the trend-filter endpoint to "
+            "load; the 50/200 EMA pair needs that much history to be defined. "
+            "Mirrors technical-analysis default_trend_limit; the bounds are "
+            "TA's own route bounds."
+        ),
+    )
+
     # `sqzmom_volume_ratio_min` has NO technical-analysis counterpart. The TA
     # volume endpoint returns `ratio` and `confirmed` but declares no
     # minimum-ratio setting, so this threshold is engine-owned rather than
