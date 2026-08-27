@@ -319,9 +319,12 @@ def test_threshold_lock_constants_are_unchanged(ensemble_module):
 # `.action`, so they traded straight past a decision the system already made.
 #
 # The gate below is keyed on the narrow `demoted_to_hold` flag added in Task 2,
-# NOT on `aggregator_signal.action == HOLD`. The broad reading would also
-# swallow the regime hard-block and the upstream requirements gate, which
-# 21-CONTEXT does not authorise.
+# NOT on `aggregator_signal.action == HOLD`. The broad reading would collapse
+# four distinct upstream causes into one the funnel cannot tell apart. The
+# regime hard-block is now gated too (P22.1-2 / DEFER-21-02, 2026-08-27) -- by
+# its OWN top-level `regime_blocked` flag, in the suite at the bottom of this
+# file, with its own rejection reason. One gate per cause; the per-timeframe
+# requirements gate remains ungated.
 # ---------------------------------------------------------------------------
 
 
@@ -539,4 +542,274 @@ def test_non_dict_multi_timeframe_metadata_does_not_crash(
     assert out is not None, (
         "a non-dict multi_timeframe block must degrade to no-suppression, "
         "not raise and not halt trading"
+    )
+# ---------------------------------------------------------------------------
+# P22.1-2 (Plan 22.1-02, DEFER-21-02): a REGIME HARD-BLOCK must suppress ALL
+# legs.
+#
+# Same defect class as the MTF suite above, in the one remaining upstream
+# cause. When apply_regime_adjustment hard-blocks a counter-trend consensus,
+# signal_aggregator records the decision as a TOP-LEVEL
+# `metadata["regime_blocked"]` bool and forces the action to HOLD
+# (signal_aggregator.py:1256-1281). `multi_indicator` honours that only
+# incidentally, via its own guard. `simple_rsi` and `mean_reversion` are
+# dispatched off the INDICATOR DICT and never read `.action`, so two of three
+# legs traded straight past a rejection the aggregator had already made.
+#
+# The gate is keyed on the `regime_blocked` flag, never on
+# `aggregator_signal.action == HOLD` -- pinned by the narrowness test at the
+# bottom of this suite. The flag is TOP-LEVEL, not nested like the MTF one, so
+# the fail-open guard is `(metadata or {})` with no isinstance layer.
+# ---------------------------------------------------------------------------
+
+
+_ABSENT = object()
+
+_REGIME_REASON = "ADX 31.2 TRENDING_DOWN -- BUY is counter-trend"
+
+
+def _agg_signal_regime(
+    action,
+    confidence,
+    regime_blocked=_ABSENT,
+    reason: str = _REGIME_REASON,
+    price: float = 100.0,
+):
+    """`_agg_signal` plus the TOP-LEVEL regime keys signal_aggregator writes.
+
+    signal_aggregator.py:1263-1265 writes `regime_blocked` and
+    `regime_adjustment_reason` FLAT on metadata, unlike the MTF block which
+    nests under `metadata["multi_timeframe"]`. `_ABSENT` models the path where
+    `regime_analysis` was falsy and neither key was ever written -- that is a
+    real production shape, not a synthetic one.
+    """
+    sig = _agg_signal(action, confidence, price)
+    if regime_blocked is not _ABSENT:
+        sig.metadata["regime_blocked"] = regime_blocked
+        sig.metadata["regime_adjustment_reason"] = reason
+    return sig
+
+
+def test_regime_block_suppresses_every_leg(ensemble_module, monkeypatch, caplog):
+    """DEFER-21-02. A regime hard-block silences all three legs pre-dispatch.
+
+    The payload is the REALISTIC post-block shape: the aggregator's action is
+    already HOLD (signal_aggregator.py:1280 forces it), so `multi_indicator` is
+    silenced by its own guard and cannot be what emits. The two legs that used
+    to trade past the block -- `simple_rsi` and `mean_reversion` -- are both
+    firing BUY at a conviction that clears AGGREGATION_THRESHOLD comfortably.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+    caplog.set_level("INFO")
+
+    out = ens.generate_signal(
+        _agg_signal_regime(SignalAction.HOLD, 0.0, regime_blocked=True),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert calls == {"simple_rsi": 0, "mean_reversion": 0}, (
+        f"the gate must fire BEFORE any leg is dispatched, got {calls}. A leg "
+        "that ran and was discarded later is not suppression -- it is a "
+        "coincidence that depends on the score arithmetic."
+    )
+    assert out is None, (
+        "the regime hard-block rejected this consensus; no leg may trade past it"
+    )
+    assert "regime" in caplog.text.lower(), (
+        "the suppression must be visible in the funnel log, named by cause "
+        "(T-22.1-02-03: a suppressed signal with no trace is unattributable)"
+    )
+    assert ens.last_rejection is not None, (
+        "every return-None path records its cause through _reject"
+    )
+    assert ens.last_rejection.cause == ensemble_module.REJECT_REGIME_BLOCKED, (
+        f"expected the regime cause, got {ens.last_rejection.cause!r}. A "
+        "distinct reason is what lets the funnel tell this apart from the MTF "
+        "demotion and from a generic no-signal."
+    )
+
+
+def test_the_same_payload_without_the_regime_flag_still_emits(
+    ensemble_module, monkeypatch
+):
+    """POSITIVE CONTROL for the test above -- do not delete.
+
+    Identical payload minus `regime_blocked`. If this did not emit, the
+    suppression test would pass vacuously: it would be asserting None against a
+    payload that never produced a signal in the first place. This is the
+    assertion that makes the pair load-bearing.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_regime(SignalAction.HOLD, 0.0),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, (
+        "without a regime_blocked flag this payload MUST emit -- two BUY legs "
+        "at 0.60 clear both MIN_AGREEING_LEGS and AGGREGATION_THRESHOLD. If it "
+        "does not, the suppression test above proves nothing."
+    )
+    assert out.action == SignalAction.BUY
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}
+
+
+def test_explicit_false_regime_blocked_does_not_suppress(
+    ensemble_module, monkeypatch
+):
+    """`regime_blocked: False` is the COMMON case and must be inert.
+
+    signal_aggregator.py:1264 writes this key on every signal whose
+    `regime_analysis` is truthy, False included. If the gate tripped on the
+    key's presence rather than on its value, it would halt essentially all
+    trading.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_regime(SignalAction.HOLD, 0.0, regime_blocked=False),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, "a consensus the regime did not block must still trade"
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        pytest.param("true", id="truthy-string"),
+        pytest.param("True", id="repr-string"),
+        pytest.param(1, id="int-one"),
+        pytest.param({}, id="empty-dict"),
+        pytest.param({"blocked": True}, id="nested-dict"),
+    ],
+)
+def test_malformed_regime_blocked_value_does_not_suppress(
+    ensemble_module, monkeypatch, malformed
+):
+    """T-22.1-02-04: a malformed metadata value must not halt ALL trading.
+
+    The check is an IDENTITY test against the boolean `True`, not a truthiness
+    test. This field is an untyped dict entry that now decides whether any trade
+    is produced at all; if a truthy string or a stray `1` could trip it, one
+    upstream typo becomes a silent, total denial of service on the trading path
+    -- with no error and no log to find it by. Fail OPEN here: a wrong value
+    must degrade to the pre-fix behaviour, not to a global halt.
+
+    Note `1 is True` is False in CPython even though `1 == True` is True. That
+    distinction is the entire mechanism, so the int case is deliberate.
+    """
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(
+        _agg_signal_regime(SignalAction.HOLD, 0.0, regime_blocked=malformed),
+        current_price=100.0,
+        capital=None,
+    )
+
+    assert out is not None, (
+        f"regime_blocked={malformed!r} is not the boolean True and must not "
+        "suppress. A truthiness check here would let one malformed upstream "
+        "value silently kill every signal the engine produces."
+    )
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}
+
+
+def test_none_metadata_container_does_not_trip_the_regime_gate(
+    ensemble_module, monkeypatch
+):
+    """T-22.1-02-01: a missing metadata CONTAINER degrades to pre-fix behaviour.
+
+    The gate reads an untyped attribute. `metadata=None` must fail OPEN -- both
+    untyped legs still dispatch and nothing raises out of `generate_signal` on
+    the live signal path.
+
+    Scope note: a container that is neither None nor a dict (a bare string, a
+    list) is NOT covered here, and deliberately so. It raises AttributeError one
+    gate EARLIER, in the MTF container guard at multi_strategy_ensemble.py:745
+    (`("garbage" or {}).get(...)`), which predates this change and is a separate
+    defect in a different gate. This plan does not widen into it; see the
+    22.1-02 SUMMARY.
+    """
+    sig = _agg_signal_regime(SignalAction.HOLD, 0.0)
+    sig.metadata = None
+
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    ens.generate_signal(sig, current_price=100.0, capital=None)
+
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}, (
+        f"a None metadata container must not suppress anything, got {calls}. "
+        "Whether the resulting payload then emits is the positive control's "
+        "job -- with no metadata there is no ATR either, which is a different "
+        "question from this gate's."
+    )
+
+
+def test_hold_without_a_regime_flag_still_dispatches_every_leg(
+    ensemble_module, monkeypatch
+):
+    """NARROWNESS PIN. The gate keys on the flag, never on `action == HOLD`.
+
+    HOLD reaches this method from four distinct upstream causes: an MTF
+    demotion, a raw consensus that was genuinely HOLD, this regime hard-block,
+    and a per-timeframe requirements gate resolving HOLD inside
+    aggregator_core. Only the first two are gated (each by its own flag).
+
+    Here the action is HOLD with NO regime keys at all -- the requirements-gate
+    shape. Widening this gate to the bare action would swallow it, collapse the
+    four causes into one the funnel cannot tell apart, and tighten admission
+    far beyond what 22.1-CONTEXT authorises. Plan 21-05 refused that widening
+    deliberately; the refusal stands.
+    """
+    sig = _agg_signal_regime(SignalAction.HOLD, 0.0)
+    sig.metadata["meets_requirements"] = False
+
+    calls = _counting_legs(
+        monkeypatch,
+        rsi=_leg_stub(SignalAction.BUY, 0.60),
+        mean_rev=_leg_stub(SignalAction.BUY, 0.60),
+    )
+    ens = ensemble_module.MultiStrategyEnsemble()
+
+    out = ens.generate_signal(sig, current_price=100.0, capital=None)
+
+    assert calls == {"simple_rsi": 1, "mean_reversion": 1}, (
+        f"a HOLD carrying no regime_blocked flag must reach both legs, got "
+        f"{calls}. Zero dispatches here would mean the gate widened into "
+        "`action == HOLD`."
+    )
+    assert out is not None, (
+        "the per-timeframe requirements gate is not the regime hard-block; "
+        "this plan does not authorise suppressing it"
     )
