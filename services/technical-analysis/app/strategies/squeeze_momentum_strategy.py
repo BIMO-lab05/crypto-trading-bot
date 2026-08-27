@@ -12,7 +12,6 @@ from typing import Dict, Optional
 from datetime import datetime
 
 from app.indicators.squeeze_momentum import SqueezeMomentumIndicator
-from app.models import SignalType
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +82,11 @@ class SqueezeMomentumStrategy:
         self.require_volume_confirmation = require_volume_confirmation
         self.volume_threshold = volume_threshold
 
-        # Tracking variables
-        self.momentum_exhaustion_count = 0
+        # Exit tuning. A write-only exhaustion counter used to sit beside this
+        # threshold; it was assigned once here and read nowhere in the service,
+        # so P21-8 (2026-08-27) removed it. Its name is deliberately not
+        # repeated - a doc guard greps for it. `exhaustion_threshold` stays:
+        # _check_momentum_exhaustion reads it at five sites.
         self.exhaustion_threshold = 3  # Bars of declining momentum before exit
 
         logger.info(
@@ -139,10 +141,12 @@ class SqueezeMomentumStrategy:
             latest = result_df.iloc[-1]
             entry_price = float(latest['close'])
 
-            # Extract squeeze state
+            # Extract squeeze state. The `no_squeeze` column is deliberately
+            # not bound: it is the exact complement of the other two
+            # (squeeze_momentum.py:359), which is what the else-branch below
+            # already derives. P21-8 (2026-08-27) removed the dead local.
             squeeze_on = latest['squeeze_on']
             squeeze_off = latest['squeeze_off']
-            no_squeeze = latest['no_squeeze']
 
             # Determine squeeze state string
             if squeeze_on:
