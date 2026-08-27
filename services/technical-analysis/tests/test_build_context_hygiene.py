@@ -64,6 +64,15 @@ BAK_GLOB = "*.bak"
 # them cannot reach the build context, so flagging it would report a finding
 # that is not a hazard -- and ``logs/`` in a live working copy is large enough
 # to make the walk slow. Everything else under the service is scanned.
+#
+# KNOWN NARROWING, stated rather than hidden: this set is pruned at ANY depth,
+# while .dockerignore's ``logs/`` (no ``**/`` prefix) excludes only at the
+# context root. A .bak under ``subdir/logs/`` would therefore enter the build
+# context and this walk would skip it. Zero such paths exist today -- an
+# unpruned ``find services/technical-analysis -name '*.bak'`` agrees with this
+# walk -- but the gap is real and is the same "a detector that silently misses
+# one fails GREEN" shape the module docstring warns about. Close it by
+# prefixing the .dockerignore globs with ``**/``, not by widening this walk.
 PRUNED_DIRS = frozenset(
     {".git", ".pytest_cache", "__pycache__", "htmlcov", "logs"}
 )
