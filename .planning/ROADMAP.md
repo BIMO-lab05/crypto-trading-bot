@@ -76,7 +76,7 @@ Plus 17 tech-debt items aggregated in the v1.2 milestone audit for v1.3 re-plan 
 - [x] **Phase 18: Bybit-Adapter Contract Fix** — Fix `bybit_adapter.py` dead endpoint paths (`/api/v1/order/create` → `/api/v1/order/place`; `/api/v1/position/list` → `/api/v1/account/positions`); extend `TapeReplayClient` with order endpoints; contract tests against bybit-connector router surface (BC-FIX-01..03) (completed 2026-05-24)
 - [ ] **Phase 19: Order Reconciliation + Idempotency** — Order-state polling or WS handler post-submit; deterministic `orderLinkId` on every place + retry (RECON-01..02)
 - [ ] **Phase 20: Paper-Engine Honesty** — Paper-sim slippage model; SL/TP trigger evaluation; monotonic order IDs; 48h max-hold + stop-loss-as-limit regression tests (PAPER-01..03)
-- [ ] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04)
+- [x] **Phase 21: TA Aggregator Widening + Leakage Net** — Bring ADX + Volume + SQZMOM into aggregator vote; reconcile MACD route/settings drift (5/35/5 canonical); reconcile BB std-dev drift (2.5 canonical); look-ahead-leakage regression suite (TA-AGG-01..04) (completed 2026-08-27)
 - [ ] **Phase 22: round(price, N) Epidemic Kill** — Fix `round(price, 2)` at 6 surviving call sites; sub-$1 asset fixture suite; CI grep gate (PRICE-01..02)
 - [ ] **Phase 23: ML Purge + V0-Pattern Eradication** — Remove price-level `r2_score` from trainer + verify; archive LSTM (ensemble_model + lstm.py); fix `feature_engineer.get_feature_names()` returning `[]`; marker-age check on `mlgate_auto_flip.json`; CI grep gate vs r2_score on price-domain arrays (ML-PURGE-01..05)
 - [ ] **Phase 24: Operator-Log + API Hygiene** — Fix stale "Sentiment 15%" log lines; DSR staleness enforcement on auto-flip; TA CORS lockdown; deprecate legacy `/api/v1/market/*` at api-gateway (HYG-01..04)
@@ -180,7 +180,7 @@ Plans:
 
 > **Superseded 2026-08-26 by `.planning/audits/2026-08-26-ta-signal-path-audit.md`** (authoritative over the Goal text above per `21-CONTEXT.md`). The Goal's premise — "votes only RSI + MACD + Trend Filter" — is **stale**: ADX and SQZMOM already vote in `get_aggregated_signal`, and Volume Confirmation is already a post-vote confidence penalty (and must never become a voter). TA-AGG-01 reduces to *test residue + wiki doc*; the `aggregator_mode = minimal|full` env is explicitly dropped. TA-AGG-02/03 are **CLOSED** (settings-sourced since 2026-08-20, pinned by `test_endpoint_defaults_from_settings.py`) — closure evidence only, no code change. TA-AGG-04 remains fully owed. The phase additionally closes eight audit defects, P21-1..P21-8, of which P21-1 (ATR threading) is the highest-severity: threading real ATR without the percent-to-fraction unit contract would ship negative stop-losses on BTC/ETH/BNB at measured 2026-08-26 volatility.
 
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 
@@ -206,7 +206,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 21-09-PLAN.md — Four-arm admission ablation, phase gate (rebuild + force-recreate + 5-symbol smoke), operator sign-off
+- [x] 21-09-PLAN.md — Four-arm admission ablation, phase gate (rebuild + force-recreate + 5-symbol smoke), operator sign-off
 
 ### Phase 22: round(price, N) Epidemic Kill
 
@@ -288,7 +288,7 @@ Plans:
 | 18. Bybit-Adapter Contract Fix | v1.3 | 3/3 | Complete   | 2026-05-24 |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
-| 21. TA Aggregator Widening + Leakage Net | v1.3 | 8/9 | In Progress|  |
+| 21. TA Aggregator Widening + Leakage Net | v1.3 | 9/9 | Complete   | 2026-08-27 |
 | 22. round(price, N) Epidemic Kill | v1.3 | 0/? | Pending | — |
 | 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
 | 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |
