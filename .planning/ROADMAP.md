@@ -180,7 +180,7 @@ Plans:
 
 > **Superseded 2026-08-26 by `.planning/audits/2026-08-26-ta-signal-path-audit.md`** (authoritative over the Goal text above per `21-CONTEXT.md`). The Goal's premise — "votes only RSI + MACD + Trend Filter" — is **stale**: ADX and SQZMOM already vote in `get_aggregated_signal`, and Volume Confirmation is already a post-vote confidence penalty (and must never become a voter). TA-AGG-01 reduces to *test residue + wiki doc*; the `aggregator_mode = minimal|full` env is explicitly dropped. TA-AGG-02/03 are **CLOSED** (settings-sourced since 2026-08-20, pinned by `test_endpoint_defaults_from_settings.py`) — closure evidence only, no code change. TA-AGG-04 remains fully owed. The phase additionally closes eight audit defects, P21-1..P21-8, of which P21-1 (ATR threading) is the highest-severity: threading real ATR without the percent-to-fraction unit contract would ship negative stop-losses on BTC/ETH/BNB at measured 2026-08-26 volatility.
 
-**Plans:** 5/9 plans executed
+**Plans:** 7/9 plans executed
 
 Plans:
 
@@ -197,8 +197,8 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 21-06-PLAN.md — P21-2 leg source-diversity guard + per-cause ensemble rejection telemetry
-- [ ] 21-07-PLAN.md — P21-7 mirror-literal cluster (engine Settings mirrors, TA `regime` passthrough, adx_period omission)
+- [x] 21-06-PLAN.md — P21-2 leg source-diversity guard + per-cause ensemble rejection telemetry
+- [x] 21-07-PLAN.md — P21-7 mirror-literal cluster (engine Settings mirrors, TA `regime` passthrough, adx_period omission)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -288,7 +288,7 @@ Plans:
 | 18. Bybit-Adapter Contract Fix | v1.3 | 3/3 | Complete   | 2026-05-24 |
 | 19. Order Reconciliation + Idempotency | v1.3 | 0/? | Pending | — |
 | 20. Paper-Engine Honesty | v1.3 | 0/? | Pending | — |
-| 21. TA Aggregator Widening + Leakage Net | v1.3 | 5/9 | In Progress|  |
+| 21. TA Aggregator Widening + Leakage Net | v1.3 | 7/9 | In Progress|  |
 | 22. round(price, N) Epidemic Kill | v1.3 | 0/? | Pending | — |
 | 23. ML Purge + V0-Pattern Eradication | v1.3 | 0/? | Pending | — |
 | 24. Operator-Log + API Hygiene | v1.3 | 0/? | Pending | — |
