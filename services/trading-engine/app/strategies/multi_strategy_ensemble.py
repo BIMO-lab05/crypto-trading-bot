@@ -13,13 +13,14 @@ agreements (all 3 legs vote the same way) get full sizing; partial agreement get
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import logging
 import json
 import os
 import threading
 import time
 
+from app.aggregation.voter import INDICATOR_CATEGORIES, SignalVoter
 from app.models.signal import IndicatorSignal, TradingSignal
 from app.models.enums import SignalAction
 from app.strategies.simple_rsi_strategy import SimpleRSIStrategy
@@ -33,6 +34,74 @@ logger = logging.getLogger(__name__)
 LEG_RSI = "simple_rsi"
 LEG_MULTI = "multi_indicator"
 LEG_MEAN_REV = "mean_reversion"
+
+# ---------------------------------------------------------------------------
+# LEG SOURCE-DIVERSITY TAXONOMY - P21-2, 2026-08-27.
+#
+# ONE taxonomy, reused, never restated. `voter.INDICATOR_CATEGORIES` is the
+# single source of truth for which indicator belongs to which category, and the
+# reason is measured: MACD was re-bucketed from MOMENTUM to TREND on 2026-08-23
+# because the old bucketing let the aggregator's diversity gate report "trend +
+# momentum confirmation" when it had trend + trend - MACD was the sole non-TREND
+# agreeing voter on 712 of 1,924 diversity passes over 8h of live logs
+# (.planning/evidence/hold-funnel-2026-08-22.md). A second map declared here
+# would drift from that one in exactly the same way, and just as silently.
+# ---------------------------------------------------------------------------
+
+# Every indicator name the shared taxonomy knows, DERIVED from it rather than
+# listed again, so a name added to voter.INDICATOR_CATEGORIES is automatically
+# known here.
+_KNOWN_INDICATOR_NAMES = frozenset().union(*INDICATOR_CATEGORIES.values())
+
+_category_voter: Optional[SignalVoter] = None
+
+
+def _indicator_category(name: str) -> str:
+    """`voter.SignalVoter.get_indicator_category`, through one shared instance.
+
+    Upstream the lookup is a method rather than a module-level function, so
+    this holds a single lazily-built voter instead of constructing one per
+    call. It is deliberately NOT a local re-implementation - see the block
+    comment above for the measured cost of a second taxonomy.
+    """
+    global _category_voter
+    if _category_voter is None:
+        _category_voter = SignalVoter()
+    return _category_voter.get_indicator_category(name)
+
+
+def _mean_reversion_source(sub_signal: str) -> Optional[str]:
+    """Map a `MeanReversionSignal.indicators_aligned` entry to its indicator.
+
+    The leg publishes WHICH SUB-SIGNALS fired (mean_reversion_strategy.py
+    :150-209), not which indicators it read, so the mapping is by prefix:
+
+        RSI_*        -> RSI              (RSI_EXTREME, RSI_OVERSOLD, ...)
+        BB_*         -> BOLLINGER_BANDS  (BB_LOWER, BB_NEAR_UPPER, ...)
+        PRICE_*_SMA  -> SMA              (PRICE_BELOW_SMA, PRICE_EXTREME_*)
+
+    Written against `indicators_aligned` on purpose, NOT against an assumption
+    that Bollinger is always present: since Plan 21-03 threaded a real ATR into
+    this leg, the SMA-deviation branch (gated on `atr_value > 0`, previously
+    dead code) is a second live firing route whose categories are
+    {MOMENTUM, TREND} rather than {MOMENTUM, VOLATILITY}.
+
+    Returns None for anything else. An unrecognised token must NOT resolve to
+    "OTHER": `voter.calculate_category_consensus` counts OTHER as an agreeing
+    category, which at the LEG level would hand a single-source leg a free
+    second category and switch this guard off with nothing going red. Dropping
+    it instead errs strict, which is the safe direction, and
+    tests/strategies/test_ensemble_diversity_guard.py scans the leg's own
+    source file for tokens this function does not know.
+    """
+    if sub_signal.startswith("RSI_"):
+        return "RSI"
+    if sub_signal.startswith("BB_"):
+        return "BOLLINGER_BANDS"
+    if sub_signal.startswith("PRICE_") and sub_signal.endswith("_SMA"):
+        return "SMA"
+    return None
+
 
 # Sentinel meaning "this leg has no usable stop/target level".
 #
@@ -86,6 +155,46 @@ def _atr_is_usable(atr_data) -> bool:
         return False
     # NaN fails both comparisons, which is the intended answer.
     return atr > 0.0 and atr_pct > 0.0
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURED REJECTION CAUSES - Plan 21-06 Task 2, 2026-08-27.
+#
+# `generate_signal` signals every rejection the same way: it returns None. The
+# trade funnel recorded that as ONE gate with a fixed
+# reason="ensemble_returned_hold" and a detail naming only two causes
+# ("weighted score below AGGREGATION_THRESHOLD or fewer than MIN_AGREEING_LEGS
+# fired"). After Plan 21-05's MTF gate and Plan 21-06's diversity guard there
+# are FIVE, so that string was factually wrong for three of them - decorative
+# telemetry of exactly the kind signal_funnel.py's own module comment exists to
+# prevent, and an attribution the Plan 21-09 ablation cannot make.
+#
+# 21-RESEARCH.md Pitfall 5 requires the choice between (a) a structured cause
+# wired into the funnel and (b) parsing log lines to be STATED. This is (a).
+# Log parsing would tie the funnel's schema to prose that no test pins.
+#
+# Identifiers are stable snake_case so the funnel and any later analysis can
+# group on them. `SignalFunnel.reject`'s `reason` is a free-form dict key
+# (signal_funnel.py: `st.reasons.setdefault(reason, _ReasonStat())`), NOT a
+# constrained set, so adding values needs no schema change and no downstream
+# consumer can silently drop one for being unknown.
+#
+# This changes no gate, no threshold and no admission decision.
+# ---------------------------------------------------------------------------
+
+REJECT_MTF_DEMOTED = "mtf_demoted"
+REJECT_NO_DIRECTIONAL_LEGS = "no_directional_legs"
+REJECT_INSUFFICIENT_DIVERSITY = "insufficient_category_diversity"
+REJECT_INSUFFICIENT_AGREEING_LEGS = "insufficient_agreeing_legs"
+REJECT_SCORE_BELOW_THRESHOLD = "score_below_threshold"
+
+
+@dataclass(frozen=True)
+class EnsembleRejection:
+    """Why `generate_signal` returned None, in a form the funnel can group on."""
+
+    cause: str
+    detail: str
 
 
 @dataclass
@@ -242,11 +351,23 @@ class MultiStrategyEnsemble:
     MIN_AGREEING_LEGS = (
         1  # at least 1 leg must fire (ensemble still applies aggregation_threshold)
     )
+    # Minimum number of distinct INDICATOR CATEGORIES the directionally-agreeing
+    # legs must span. NOT a new knob and NOT a threshold change: it is the value
+    # CoreAggregator already applies one level up, via
+    # voter.check_category_diversity(..., min_categories=2). Mirrored here so
+    # the same rule reaches leg-level agreement, which the aggregator never saw.
+    MIN_LEG_CATEGORIES = 2
 
     def __init__(self, mean_reversion: Optional[MeanReversionStrategy] = None):
         self.simple_rsi = SimpleRSIStrategy()
         self.mean_reversion = mean_reversion or MeanReversionStrategy()
         self.weights = get_ensemble_weights()
+        # Why the LAST generate_signal call returned None, or None when the
+        # last call produced a signal. Read by
+        # auto_trader._check_and_trade_ensemble; reset at the top of every
+        # generate_signal so a value from the previous symbol can never be
+        # reported as this one's cause.
+        self.last_rejection: Optional[EnsembleRejection] = None
         logger.info(
             f"MultiStrategyEnsemble initialized: legs=[{LEG_RSI}, {LEG_MULTI}, {LEG_MEAN_REV}], "
             f"threshold={self.AGGREGATION_THRESHOLD}, min_agreeing={self.MIN_AGREEING_LEGS}, "
@@ -417,6 +538,129 @@ class MultiStrategyEnsemble:
             },
         )
 
+    def _reject(self, cause: str, detail: str) -> None:
+        """Record the cause of a `generate_signal` rejection, then return None.
+
+        One writer for every return-None path, so a new path cannot be added
+        without a cause and quietly land back in the generic bucket.
+        """
+        self.last_rejection = EnsembleRejection(cause=cause, detail=detail)
+
+    @staticmethod
+    def _leg_indicator_names(leg_id: str, mean_reversion_signal) -> Optional[Set[str]]:
+        """Which indicators a directionally-agreeing leg actually consumed.
+
+        Returns None when the leg's sources cannot be resolved - the caller
+        then FAILS OPEN (see `_check_leg_source_diversity`). `LEG_MULTI` never
+        reaches here; the caller handles it as diverse by construction.
+        """
+        if leg_id == LEG_RSI:
+            # simple_rsi_strategy.py:153 - `indicators.get("RSI")` is the ONLY
+            # key this leg reads. Structural, not a heuristic: there is no
+            # payload under which it consumes a second indicator, so its
+            # category set is {MOMENTUM} by construction.
+            return {"RSI"}
+
+        if leg_id == LEG_MEAN_REV:
+            aligned = getattr(mean_reversion_signal, "indicators_aligned", None)
+            if not isinstance(aligned, (list, tuple, set)):
+                return None
+            names: Set[str] = set()
+            for token in aligned:
+                source = _mean_reversion_source(str(token))
+                if source is None or source not in _KNOWN_INDICATOR_NAMES:
+                    logger.warning(
+                        f"[ENSEMBLE][DIVERSITY] unmapped {LEG_MEAN_REV} sub-signal "
+                        f"{token!r} - it contributes no category. Add it to "
+                        f"_mean_reversion_source (and to the source scan in "
+                        f"tests/strategies/test_ensemble_diversity_guard.py) "
+                        f"rather than letting it fall through."
+                    )
+                    continue
+                names.add(source)
+            return names or None
+
+        return None
+
+    def _check_leg_source_diversity(
+        self,
+        agreeing_leg_ids: List[str],
+        mean_reversion_signal,
+        action: SignalAction,
+        symbol: str,
+    ) -> Tuple[bool, int, str]:
+        """Do the agreeing legs span >= MIN_LEG_CATEGORIES indicator categories?
+
+        Shape mirrors `voter.check_category_diversity`: HOLD short-circuits,
+        the comparison is `>=`, and a human-readable reason is returned
+        alongside the boolean so the log line and the funnel detail read the
+        same sentence.
+        """
+        # HOLD short-circuit, exactly as voter.check_category_diversity does it.
+        # Reaching this with a zero weighted score means no leg took the winning
+        # side at all; that rejection belongs to the MIN_AGREEING_LEGS gate, and
+        # attributing it to diversity would corrupt the funnel's per-cause
+        # counts - the one thing the Plan 21-09 ablation reads.
+        if action == SignalAction.HOLD:
+            return True, 0, "HOLD outcomes do not require leg source diversity"
+
+        if LEG_MULTI in agreeing_leg_ids:
+            return (
+                True,
+                self.MIN_LEG_CATEGORIES,
+                f"Leg source diversity OK: {LEG_MULTI} agrees and is diverse by "
+                f"construction (it already cleared CoreAggregator's "
+                f"check_category_diversity(min_categories="
+                f"{self.MIN_LEG_CATEGORIES}))",
+            )
+
+        categories: Set[str] = set()
+        for leg_id in agreeing_leg_ids:
+            names = self._leg_indicator_names(leg_id, mean_reversion_signal)
+            if not names:
+                # FAIL OPEN, and say so. A leg object whose sources cannot be
+                # read is a shape problem, not a market condition; failing
+                # CLOSED here would let one upstream change halt every signal
+                # the engine emits, with no error to find it by - the same
+                # doctrine Plan 21-05 applied to `demoted_to_hold`.
+                #
+                # This cannot defeat the guard's purpose. simple_rsi is
+                # hardcoded to {"RSI"} and is always resolvable, and
+                # mean_reversion cannot be single-source at all
+                # (MIN_INDICATORS_ALIGNED = 2 requires a Bollinger or SMA
+                # co-signal), so the case this guard exists to block never
+                # takes this path.
+                logger.warning(
+                    f"[ENSEMBLE][DIVERSITY] {symbol}: could not resolve the "
+                    f"indicator sources of agreeing leg {leg_id!r} - the leg "
+                    f"source-diversity guard is SKIPPED for this evaluation "
+                    f"(failing open). Agreeing legs: {sorted(agreeing_leg_ids)}."
+                )
+                return (
+                    True,
+                    0,
+                    f"Leg source diversity NOT EVALUATED: sources of {leg_id!r} "
+                    f"could not be resolved; failing open",
+                )
+            categories.update(_indicator_category(name) for name in names)
+
+        count = len(categories)
+        listed = ", ".join(sorted(categories)) or "none"
+        if count >= self.MIN_LEG_CATEGORIES:
+            return (
+                True,
+                count,
+                f"Leg source diversity OK: {count} categories agree ({listed})",
+            )
+        return (
+            False,
+            count,
+            f"Insufficient leg source diversity: {count}/"
+            f"{self.MIN_LEG_CATEGORIES} categories ({listed}) across agreeing "
+            f"legs {sorted(agreeing_leg_ids)} - single-source agreement is not "
+            f"independent multi-leg confirmation",
+        )
+
     def generate_signal(
         self,
         aggregator_signal: TradingSignal,
@@ -485,6 +729,13 @@ class MultiStrategyEnsemble:
         # Expected effect: trade admission DECREASES. 21-CONTEXT authorises that
         # explicitly. It belongs to the "+gates" arm of the Plan 21-09 ablation,
         # not the "+ATR" arm.
+        # RESET FIRST, before any branch can return. `get_ensemble()` is a
+        # process singleton and auto_trader evaluates symbol after symbol in one
+        # loop, so a cause left over from BTCUSDT would otherwise be reported as
+        # ETHUSDT's (T-21-06-05).
+        self.last_rejection = None
+
+        symbol = getattr(aggregator_signal, "symbol", "?")
         mtf_meta = (aggregator_signal.metadata or {}).get("multi_timeframe")
         if not isinstance(mtf_meta, dict):
             mtf_meta = {}
@@ -496,6 +747,12 @@ class MultiStrategyEnsemble:
                 "guard) while simple_rsi and mean_reversion never read .action. "
                 f"consensus={mtf_meta.get('consensus_action')} "
                 f"consolidated={mtf_meta.get('consolidated_action')}"
+            )
+            self._reject(
+                REJECT_MTF_DEMOTED,
+                f"multi-timeframe consolidation demoted the consensus to HOLD "
+                f"(consensus={mtf_meta.get('consensus_action')!r}, "
+                f"consolidated={mtf_meta.get('consolidated_action')!r})",
             )
             return None
 
@@ -574,6 +831,12 @@ class MultiStrategyEnsemble:
                 f"[ENSEMBLE] HOLD — no legs fired. "
                 f"agg_action={aggregator_signal.action.value} agg_conf={aggregator_signal.confidence:.2f}"
             )
+            self._reject(
+                REJECT_NO_DIRECTIONAL_LEGS,
+                f"no leg produced a signal "
+                f"(agg_action={aggregator_signal.action.value}, "
+                f"agg_conf={aggregator_signal.confidence:.2f})",
+            )
             return None
 
         weights = self.weights.normalized_weights()
@@ -629,16 +892,90 @@ class MultiStrategyEnsemble:
                 for leg, value in leg_contributions.items()
             }
 
-        agreeing_legs = sum(
-            1
-            for (a, _c, _sl, _tp, _r) in leg_signals.values()
+        # ONE agreement predicate, evaluated once. The diversity guard below
+        # needs the identities of the agreeing legs, not just how many there
+        # are; writing a second predicate for it is the drift class this phase
+        # exists to remove.
+        agreeing_leg_ids = [
+            leg_id
+            for leg_id, (a, _c, _sl, _tp, _r) in leg_signals.items()
             if (a == SignalAction.BUY and weighted_score > 0)
             or (a == SignalAction.SELL and weighted_score < 0)
+        ]
+        agreeing_legs = len(agreeing_leg_ids)
+
+        # LEG SOURCE-DIVERSITY GUARD - P21-2, 2026-08-27.
+        #
+        # The defect: agreement was counted without asking what each leg had
+        # READ. `simple_rsi` consumes exactly one indicator key
+        # (simple_rsi_strategy.py:153), so it is structurally a MOMENTUM-only
+        # leg, and `mean_reversion`'s cheapest firing route starts from the same
+        # RSI print. Two legs echoing one RSI reading were presented downstream
+        # as independent multi-leg confirmation.
+        #
+        # Why it bites NOW, with measured context: until 2026-08-23 the weighted
+        # score was normalised over ALL THREE legs' weight, so a lone leg was
+        # capped at 1/3 of its conviction and could not clear the downstream
+        # 0.30 floor whatever it believed (live SOLUSDT 2026-08-23 01:00-01:23:
+        # conviction 0.36 reported as 0.119 and rejected 36 times). The fix that
+        # normalises over DIRECTIONAL legs only - see the denominator comment
+        # above - made single-leg admission reachable, which is precisely what
+        # turns single-source agreement into a trade.
+        #
+        # THIS IS NOT A LEG COUNT. The two rules diverge on the row that matters:
+        #
+        #   agreeing legs            | categories  | this guard | MIN_LEGS = 2
+        #   -------------------------|-------------|------------|-------------
+        #   simple_rsi alone         | {MOMENTUM}  | block      | block
+        #   simple_rsi + mean_rev    | 2           | pass       | pass
+        #   multi_indicator alone    | >= 2 (ctor) | PASS       | block
+        #
+        # `multi_indicator` carries the full nine-voter gate stack and has
+        # ALREADY cleared CoreAggregator's own
+        # check_category_diversity(min_categories=2). Re-deriving its categories
+        # here would invite the two gates to drift apart and would double-jeopardy
+        # the strongest leg, so it is treated as diverse by construction. The
+        # third row is pinned by an explicit test and is the same claim as Plan
+        # 21-05's `threshold_lock`.
+        #
+        # NO THRESHOLD VALUE CHANGED. MIN_AGREEING_LEGS stays at 1,
+        # AGGREGATION_THRESHOLD at 0.10, min_signal_confidence at 0.30. This is
+        # wiring correctness, not tuning: the guard asks whether the information
+        # is independent, not whether there is more of it.
+        #
+        # Expected effect: trade admission DECREASES. 21-CONTEXT authorises that
+        # explicitly. It belongs to the "+gates" arm of the Plan 21-09 ablation,
+        # together with 21-05's MTF gate, and NOT to the "+ATR" arm.
+        proposed_action = (
+            SignalAction.BUY
+            if weighted_score > 0
+            else (SignalAction.SELL if weighted_score < 0 else SignalAction.HOLD)
         )
+        is_diverse, category_count, diversity_reason = self._check_leg_source_diversity(
+            agreeing_leg_ids, mr_sig, proposed_action, symbol
+        )
+        if not is_diverse:
+            logger.info(
+                f"[ENSEMBLE] HOLD - {diversity_reason}. "
+                f"Score={weighted_score:+.3f}, actions={leg_actions}"
+            )
+            self._reject(
+                REJECT_INSUFFICIENT_DIVERSITY,
+                f"{diversity_reason}; score={weighted_score:+.3f}, "
+                f"actions={leg_actions}",
+            )
+            return None
+
         if agreeing_legs < self.MIN_AGREEING_LEGS:
             logger.info(
                 f"[ENSEMBLE] HOLD — only {agreeing_legs} legs agree (need {self.MIN_AGREEING_LEGS}). "
                 f"Score={weighted_score:+.3f}, actions={leg_actions}"
+            )
+            self._reject(
+                REJECT_INSUFFICIENT_AGREEING_LEGS,
+                f"only {agreeing_legs} leg(s) agree, need "
+                f"{self.MIN_AGREEING_LEGS}; score={weighted_score:+.3f}, "
+                f"actions={leg_actions}",
             )
             return None
 
@@ -646,6 +983,12 @@ class MultiStrategyEnsemble:
             logger.info(
                 f"[ENSEMBLE] HOLD — weighted score {weighted_score:+.3f} below threshold "
                 f"{self.AGGREGATION_THRESHOLD}. Actions={leg_actions}"
+            )
+            self._reject(
+                REJECT_SCORE_BELOW_THRESHOLD,
+                f"weighted score {weighted_score:+.3f} is below "
+                f"AGGREGATION_THRESHOLD {self.AGGREGATION_THRESHOLD}; "
+                f"actions={leg_actions}",
             )
             return None
 
@@ -695,6 +1038,11 @@ class MultiStrategyEnsemble:
             "Weights: " + ", ".join(f"{k}={v:.2f}" for k, v in weights.items()),
             f"Dominant: {dominant_leg}",
         ] + [f"  └ {r}" for r in dominant_reason]
+
+        # Explicit even though the reset at the top already cleared it: a stale
+        # cause sitting beside a live signal reads to an operator as the reason
+        # the trade was blocked.
+        self.last_rejection = None
 
         return EnsembleSignal(
             action=action,
