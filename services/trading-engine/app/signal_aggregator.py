@@ -1121,6 +1121,42 @@ class SignalAggregator:
             mtf_analysis, original_confidence
         )
 
+        # 2026-08-27, P21-3. Record whether consolidation DEMOTED a directional
+        # consensus to HOLD.
+        #
+        # Until this line existed the demotion was invisible downstream. The
+        # metadata key written below as `consensus_action` carries
+        # `mtf_analysis.consensus_action` -- the PRE-demotion blend -- so a
+        # consensus that consolidate_mtf_confidence() demoted and a consensus
+        # that was genuinely HOLD to begin with produced byte-identical
+        # metadata. Nothing downstream could tell them apart.
+        #
+        # That is precisely why only ONE of the three ensemble legs honoured a
+        # demotion. `multi_indicator` is guarded on
+        # `aggregator_signal.action != HOLD` and therefore happens to see the
+        # demoted action applied at `primary_signal.action` below; `simple_rsi`
+        # and `mean_reversion` never read `.action` at all and traded straight
+        # past a decision this function had already made. They cannot be gated
+        # on something they cannot observe.
+        #
+        # Deliberately NARROW. `action == HOLD` reaches the ensemble from four
+        # distinct upstream causes: this demotion, a raw consensus that was
+        # genuinely HOLD, the regime hard-block further down this method, and a
+        # per-timeframe requirements gate resolving HOLD inside aggregator_core.
+        # This flag marks exactly one of them -- the demotion at
+        # consolidate_mtf_confidence():71-78. The regime hard-block is arguably
+        # the same class of defect and is deliberately NOT captured here:
+        # 21-CONTEXT does not authorise gating on it, so it is named as a
+        # follow-up rather than silently widened into.
+        #
+        # NO THRESHOLD VALUE CHANGED. MIN_AGREEING_LEGS (1),
+        # AGGREGATION_THRESHOLD (0.10) and min_signal_confidence (0.30) are
+        # untouched. This is observability wiring, not a gate.
+        demoted_to_hold = (
+            mtf_analysis.consensus_action != SignalAction.HOLD
+            and consolidated_action == SignalAction.HOLD
+        )
+
         logger.info("   Multi-timeframe adjustment:")
         logger.info(f"      Alignment: {mtf_analysis.alignment_strength.value}")
         logger.info(f"      Modifier: {mtf_analysis.confidence_modifier:.2f}x")
@@ -1159,6 +1195,14 @@ class SignalAggregator:
             "enabled": True,
             "timeframes": timeframes,
             "consensus_action": mtf_analysis.consensus_action.value,
+            # P21-3 (2026-08-27): ADDITIVE keys. `consensus_action` above
+            # is the pre-demotion blend and is left exactly as it was --
+            # something downstream may already read it, and changing its
+            # meaning to fix an observability gap would trade one silent
+            # defect for another. See the block above the demotion
+            # computation for why this pair exists and why it is narrow.
+            "consolidated_action": consolidated_action.value,
+            "demoted_to_hold": demoted_to_hold,
             "alignment_strength": mtf_analysis.alignment_strength.value,
             "confidence_modifier": mtf_analysis.confidence_modifier,
             "agreement_pct": mtf_analysis.agreement_pct,
@@ -1208,8 +1252,14 @@ class SignalAggregator:
                     f"REGIME HARD-BLOCK (post-MTF): {primary_signal.action.value} "
                     f"on {symbol} rejected — {regime_reason}"
                 )
-                from app.models import SignalAction
-
+                # P21-3, 2026-08-27: the redundant function-local
+                # `from app.models import SignalAction` that used to sit here is
+                # REMOVED. Python treats a name imported anywhere in a function
+                # body as local to the WHOLE function, so this line shadowed the
+                # module-level import at the top of the file and made
+                # SignalAction unbound at every earlier reference in this method
+                # (UnboundLocalError). The module-level import is the only one
+                # needed -- do not reintroduce a local import here.
                 primary_signal.action = SignalAction.HOLD
                 primary_signal.metadata["meets_requirements"] = False
 
