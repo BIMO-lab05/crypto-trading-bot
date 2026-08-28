@@ -712,8 +712,10 @@ class MultiStrategyEnsemble:
         # NOT on `aggregator_signal.action == SignalAction.HOLD`. The broad
         # reading is simpler and needs no metadata key, but `action == HOLD`
         # arrives from four distinct upstream causes — this demotion, a raw
-        # consensus that was genuinely HOLD, the regime hard-block
-        # (signal_aggregator.py:1243-1281), and a per-timeframe requirements
+        # consensus that was genuinely HOLD, the regime hard-block (the
+        # `if regime_analysis:` block in signal_aggregator's
+        # `get_trading_signal_multi_timeframe`, marked by its REGIME
+        # HARD-BLOCK log line), and a per-timeframe requirements
         # gate resolving HOLD inside aggregator_core. Gating on the bare action
         # would collapse all four into one cause the funnel cannot tell apart.
         # P22.1-2 (DEFER-21-02, 2026-08-27): the regime hard-block IS now gated
@@ -773,7 +775,10 @@ class MultiStrategyEnsemble:
         # market_regime.apply_regime_adjustment hard-blocks a counter-trend
         # consensus, signal_aggregator records the decision as a TOP-LEVEL
         # `metadata["regime_blocked"]` bool and forces the action to HOLD
-        # (signal_aggregator.py:1256-1281). Half the machinery already existed:
+        # (in `get_trading_signal_multi_timeframe`'s `if regime_analysis:`
+        # block, marked by the REGIME HARD-BLOCK log line — an anchor, not a
+        # line number, because line citations into that file have rotted
+        # repeatedly). Half the machinery already existed:
         # the aggregator wrote the flag, nothing read it.
         #
         # The defect this closes is identical in shape to the MTF one above.

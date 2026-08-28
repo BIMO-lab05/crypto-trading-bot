@@ -551,7 +551,8 @@ def test_non_dict_multi_timeframe_metadata_does_not_crash(
 # cause. When apply_regime_adjustment hard-blocks a counter-trend consensus,
 # signal_aggregator records the decision as a TOP-LEVEL
 # `metadata["regime_blocked"]` bool and forces the action to HOLD
-# (signal_aggregator.py:1256-1281). `multi_indicator` honours that only
+# (in `get_trading_signal_multi_timeframe`'s `if regime_analysis:` block,
+# marked by the REGIME HARD-BLOCK log line). `multi_indicator` honours that only
 # incidentally, via its own guard. `simple_rsi` and `mean_reversion` are
 # dispatched off the INDICATOR DICT and never read `.action`, so two of three
 # legs traded straight past a rejection the aggregator had already made.
@@ -577,7 +578,8 @@ def _agg_signal_regime(
 ):
     """`_agg_signal` plus the TOP-LEVEL regime keys signal_aggregator writes.
 
-    signal_aggregator.py:1263-1265 writes `regime_blocked` and
+    The regime hard-block in signal_aggregator's
+    `get_trading_signal_multi_timeframe` writes `regime_blocked` and
     `regime_adjustment_reason` FLAT on metadata, unlike the MTF block which
     nests under `metadata["multi_timeframe"]`. `_ABSENT` models the path where
     `regime_analysis` was falsy and neither key was ever written -- that is a
@@ -594,7 +596,8 @@ def test_regime_block_suppresses_every_leg(ensemble_module, monkeypatch, caplog)
     """DEFER-21-02. A regime hard-block silences all three legs pre-dispatch.
 
     The payload is the REALISTIC post-block shape: the aggregator's action is
-    already HOLD (signal_aggregator.py:1280 forces it), so `multi_indicator` is
+    already HOLD (the REGIME HARD-BLOCK branch in
+    `get_trading_signal_multi_timeframe` forces it), so `multi_indicator` is
     silenced by its own guard and cannot be what emits. The two legs that used
     to trade past the block -- `simple_rsi` and `mean_reversion` -- are both
     firing BUY at a conviction that clears AGGREGATION_THRESHOLD comfortably.
@@ -672,8 +675,8 @@ def test_explicit_false_regime_blocked_does_not_suppress(
 ):
     """`regime_blocked: False` is the COMMON case and must be inert.
 
-    signal_aggregator.py:1264 writes this key on every signal whose
-    `regime_analysis` is truthy, False included. If the gate tripped on the
+    signal_aggregator's `get_trading_signal_multi_timeframe` writes this
+    key on every signal whose `regime_analysis` is truthy, False included. If the gate tripped on the
     key's presence rather than on its value, it would halt essentially all
     trading.
     """

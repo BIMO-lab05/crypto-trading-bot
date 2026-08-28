@@ -179,7 +179,8 @@ def _tf_trading_signal(tf) -> TradingSignal:
 def _blocking_regime_analysis():
     """Minimal stand-in for RegimeAnalysis -- only the fields the writer reads.
 
-    signal_aggregator.py:1183-1193 copies these nine attributes into
+    The `if regime_analysis:` block in signal_aggregator's
+    `get_trading_signal_multi_timeframe` copies these nine attributes into
     metadata["market_regime"]; nothing else about the object is touched on this
     path because apply_regime_adjustment is stubbed by the caller.
     """
@@ -328,7 +329,8 @@ async def test_regime_hard_block_hold_is_not_recorded_as_an_mtf_demotion(monkeyp
 
     ``action == HOLD`` reaches the ensemble from four distinct upstream causes:
     MTF consensus demoted (this plan), a raw consensus that was genuinely HOLD,
-    the regime hard-block at signal_aggregator.py:1206-1214, and a per-timeframe
+    the regime hard-block in `get_trading_signal_multi_timeframe` (marked
+    by its REGIME HARD-BLOCK log line), and a per-timeframe
     requirements gate resolving HOLD inside aggregator_core.
 
     Here a directional BUY consensus SURVIVES consolidation and is then forced to
