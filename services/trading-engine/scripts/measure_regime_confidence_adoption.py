@@ -402,6 +402,15 @@ def main() -> int:
     logging.disable(logging.NOTSET if args.verbose else logging.CRITICAL)
 
     corpus = build_corpus()
+    # Integrity guard, and it must sit BEFORE compare(): this check used to
+    # run after the comparison, but compare() calls max() over the rows and
+    # raises ValueError on an empty sequence, so the graceful FAIL below it
+    # could never execute (review 22.1 IN-03). Unreachable today -- the grid
+    # always contains UNKNOWN -- but a guard that documents a failure mode
+    # must actually be the code path that expresses it.
+    if not corpus:
+        print("FAIL: empty corpus", file=sys.stderr)
+        return 1
     per_arm = asyncio.run(run_corpus(corpus))
     result = compare(corpus, per_arm)
 
@@ -461,10 +470,9 @@ def main() -> int:
         print(f"\nwrote {args.json_path}")
 
     # Integrity: if the enhanced arithmetic degraded on any row, the deltas
-    # would be comparing exception fallbacks rather than weights.
-    if result["row_count"] == 0:
-        print("\nFAIL: empty corpus", file=sys.stderr)
-        return 1
+    # would be comparing exception fallbacks rather than weights. (The
+    # empty-corpus check that used to sit here moved above compare() --
+    # review 22.1 IN-03.)
     if result["rows_where_arithmetic_completed_both_arms"] != result["row_count"]:
         print(
             "\nFAIL: the enhanced arithmetic degraded on at least one row",
