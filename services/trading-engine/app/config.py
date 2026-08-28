@@ -384,12 +384,17 @@ class Settings(BaseSettings):
     # NOT send what TA owns); 22.1-CONTEXT item B locks engine-Settings routing
     # here instead, so do not "fix" these into omission.
     #
-    # The ge/le bounds below are deliberately the bounds technical-analysis
-    # already enforces on its own routes (band multiplier 1.0-4.0 in TA
-    # `handlers/indicators.py`, trend kline count 200-1000 in TA `main.py`), so
-    # an engine-side override that TA's endpoint would reject cannot even be
-    # declared: it fails here, at Settings construction, instead of arriving as
-    # a 422 from a service that is not this one.
+    # The ge/le bounds on `bollinger_std_dev` and `trend_filter_kline_limit`
+    # are deliberately the bounds technical-analysis already enforces on its
+    # own routes (band multiplier 1.0-4.0 in TA `handlers/indicators.py`,
+    # trend kline count 200-1000 in TA `main.py`), so an engine-side override
+    # that TA's endpoint would reject cannot even be declared: it fails here,
+    # at Settings construction, instead of arriving as a 422 from a service
+    # that is not this one. `rsi_period` is the exception: TA's RSI routes
+    # accept ge=2/le=200 while the engine caps at le=100 — TIGHTER than TA,
+    # so every engine-legal value is still TA-legal, but a TA-legal override
+    # like RSI_PERIOD=150 fails engine Settings construction (review 22.1
+    # IN-01; widen le if such an override is ever actually wanted).
     # NO VALUE CHANGED — 9, 2.5 and 300 are the literals they replace.
     rsi_period: int = Field(
         default=9,
