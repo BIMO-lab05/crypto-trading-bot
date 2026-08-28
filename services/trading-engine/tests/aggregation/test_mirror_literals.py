@@ -771,8 +771,11 @@ async def test_handler_reports_the_confidence_ta_computed(monkeypatch):
 
 @pytest.mark.parametrize(
     "bad_confidence",
-    ["high", None, {}, [], float("nan"), float("inf")],
-    ids=["string", "null", "dict", "list", "nan", "inf"],
+    ["high", None, {}, [], float("nan"), float("inf"), True, 62.0, -0.1],
+    ids=[
+        "string", "null", "dict", "list", "nan", "inf",
+        "bool_true", "percent_scale", "negative",
+    ],
 )
 async def test_a_malformed_confidence_is_omitted_not_propagated(
     monkeypatch, caplog, bad_confidence
@@ -782,7 +785,11 @@ async def test_a_malformed_confidence_is_omitted_not_propagated(
     `_calculate_enhanced_signal` multiplies this value by 0.15 without
     inspecting it. NaN and inf are in the grid on purpose: they coerce through
     `float()` cleanly and then poison every weight they touch, so "coercible"
-    is not the same test as "usable".
+    is not the same test as "usable". Bool and out-of-range floats joined the
+    grid with review 22.1 WR-01 for the same reason one layer out:
+    `float(True)` is a clean, finite 1.0 (maximum confidence from a malformed
+    boolean), and a finite percent-scale 62.0 would inflate the risk leg ~124x
+    against neutral. The trust boundary on this cross-service value is [0, 1].
     """
     from app.handlers import signals as signals_handler
 
@@ -811,6 +818,26 @@ async def test_a_malformed_confidence_is_omitted_not_propagated(
     assert "BTCUSDT" in caplog.text, (
         f"a present-but-unusable confidence must log a warning naming the symbol "
         f"it came from; captured: {caplog.text!r}"
+    )
+
+
+@pytest.mark.parametrize("boundary", [0.0, 1.0], ids=["floor", "ceiling"])
+async def test_a_boundary_confidence_is_adopted_not_omitted(monkeypatch, boundary):
+    """The WR-01 range guard is inclusive: TA's own clamp emits both endpoints.
+
+    technical-analysis clamps its computed confidence into [0, 1] (`adx.py`),
+    so 0.0 and 1.0 are legitimate TA output, not malformed shapes. A guard
+    written with `<`/`>` instead of `<=`/`>=` would silently discard TA's
+    extremes -- the exact substitute-a-constant behaviour DEFER-21-05 removed.
+    """
+    result = await _drive_market_regime(
+        monkeypatch,
+        payload={"data": {"adx": 27.0, "regime": "TRENDING", "confidence": boundary}},
+    )
+    assert result.get("confidence") == boundary, (
+        f"technical-analysis reported {boundary} and the engine reported "
+        f"{result.get('confidence', '<absent>')!r}; an in-range value must be "
+        f"adopted verbatim"
     )
 
 

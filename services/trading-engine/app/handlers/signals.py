@@ -234,13 +234,30 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
         regime_report = {"regime": regime, "adx": adx_value}
         if "confidence" in payload:
             raw_confidence = payload.get("confidence")
-            try:
-                parsed_confidence = float(raw_confidence)
-            except (TypeError, ValueError):
+            # Rejected BEFORE coercion (review 22.1 WR-01): a JSON `true`
+            # arrives as Python bool and `float(True)` is a clean 1.0, so a
+            # malformed boolean would be adopted as MAXIMUM confidence instead
+            # of being omitted like every other malformed shape.
+            if isinstance(raw_confidence, bool):
                 parsed_confidence = None
+            else:
+                try:
+                    parsed_confidence = float(raw_confidence)
+                except (TypeError, ValueError):
+                    parsed_confidence = None
             # NaN and inf coerce through `float()` cleanly and then poison every
             # weight they touch, so "coercible" is not the test that matters.
-            if parsed_confidence is None or not math.isfinite(parsed_confidence):
+            # Neither is finiteness alone (review 22.1 WR-01): this number is
+            # multiplied into the risk-leg weight, so a finite out-of-range
+            # value -- a percent-scale 62.0 from a TA-side regression, a
+            # negative -- would silently rescale that leg. TA clamps to [0, 1]
+            # today; this handler does not get to assume a cross-service
+            # payload always will.
+            if (
+                parsed_confidence is None
+                or not math.isfinite(parsed_confidence)
+                or not 0.0 <= parsed_confidence <= 1.0
+            ):
                 logger.warning(
                     f"technical-analysis returned an unusable regime confidence "
                     f"{raw_confidence!r} for {symbol}; omitting the key so the "
