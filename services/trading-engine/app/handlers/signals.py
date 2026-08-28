@@ -273,9 +273,13 @@ async def _fetch_market_regime(symbol: str, interval: str) -> dict:
         return {
             # `adx` is None, not 25: a failed fetch has no measurement, and a
             # plausible stand-in reads as a real one in the API response.
+            # `confidence` is OMITTED for the same reason (review 22.1 WR-02,
+            # superseding plan 22.1-05's pinned 0.5 on this path): a present
+            # constant reads as a measurement in the API response, and the sole
+            # arithmetic consumer does `market_regime.get("confidence", 0.5)`,
+            # so the absent key lands on the identical declared neutral.
             "regime": "UNKNOWN",
             "adx": None,
-            "confidence": 0.5,
             "reason": f"Regime service error: {str(e)}",
         }
 

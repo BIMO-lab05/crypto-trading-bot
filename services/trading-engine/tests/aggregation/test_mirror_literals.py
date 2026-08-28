@@ -584,14 +584,24 @@ BANNED_LITERALS = [
         r'\.get\("adx",\s*25\)|"adx":\s*25',
         "a missing ADX must stay absent, never be back-filled with a plausible 25",
     ),
-    # DEFER-21-05. Narrow by design: it matches the key-and-value form only, so
-    # neither the rationale comment left at the site (which names 0.7 in prose)
-    # nor the degraded path's declared `"confidence": 0.5` can trip it.
+    # DEFER-21-05. Narrow by design: it matches the key-and-value form only,
+    # so the rationale comment left at the site (which names 0.7 in prose)
+    # cannot trip it.
     (
         "handlers/signals.py",
         r'"confidence":\s*0\.7',
         "the success path must report the confidence technical-analysis "
         "computed, never a fixed stand-in for it",
+    ),
+    # Review 22.1 WR-02: the degraded path's present constant went the same
+    # way. Narrow like its sibling above -- the consumer's own
+    # `.get("confidence", 0.5)` default is a call argument, not a key-value
+    # pair, so it cannot trip this.
+    (
+        "handlers/signals.py",
+        r'"confidence":\s*0\.5',
+        "the fetch-failure fallback must omit the key, never report a present "
+        "constant that reads as a measurement",
     ),
     (
         "aggregation/market_regime.py",
@@ -765,7 +775,7 @@ async def test_handler_reports_the_confidence_ta_computed(monkeypatch):
     assert result["confidence"] == 0.6, (
         f"technical-analysis computed 0.6 and the engine reported "
         f"{result.get('confidence')!r}. 0.7 is the removed constant and 0.5 is "
-        f"the degraded-path default — neither may stand in for a real value"
+        f"the consumer's declared neutral — neither may stand in for a real value"
     )
 
 
@@ -953,6 +963,17 @@ async def test_regime_fetch_failure_does_not_fabricate_an_adx(monkeypatch):
     assert result["regime"] == "UNKNOWN"
     assert result["adx"] is None
     assert "reason" in result
+    # Review 22.1 WR-02, superseding plan 22.1-05's pin of a present 0.5 on
+    # this path: a failed fetch measured nothing, so the degraded reply omits
+    # the key exactly like the success path does when TA supplies none. The
+    # arithmetic is proven unchanged by the consumer's own default --
+    # `market_regime.get("confidence", 0.5)` resolves to the same neutral
+    # either way; only the API response stops dressing a constant as a
+    # measurement.
+    assert "confidence" not in result, (
+        f"the degraded path reported confidence {result.get('confidence')!r}; "
+        f"a fetch failure has no measurement and must not fabricate one"
+    )
 
 
 async def test_unmapped_ta_regime_label_fails_loud_not_silent(monkeypatch, caplog):
