@@ -3,8 +3,8 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.13.4           # Data validation
+uvicorn[standard]==0.52.4 # ASGI server
+pydantic==2.13.5           # Data validation
 pydantic-settings==2.14.2  # Settings management
 
 # Data Processing
@@ -24,19 +24,19 @@ redis==5.3.1              # Sync Redis client
 pika==1.4.4               # RabbitMQ client
 
 # WebSocket & HTTP
-websockets==17.0.1          # WebSocket client
+websockets==17.1          # WebSocket client
 httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
+python-json-logger==4.2.0 # Structured logging
 
 # Rate Limiting
 slowapi==0.1.10            # Rate limiting for FastAPI
 limits==5.8.0             # Rate limiting backend
 
 # Utilities
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 python-dateutil==2.9.0.post0    # Date/time utilities
 pytz==2026.3.post1              # Timezone handling
 
@@ -49,7 +49,7 @@ freezegun==1.5.5          # Time mocking
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
 flake8==7.3.0             # Linter
 

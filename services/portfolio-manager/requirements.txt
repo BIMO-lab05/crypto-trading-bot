@@ -3,8 +3,8 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.13.4           # Data validation
+uvicorn[standard]==0.52.4 # ASGI server
+pydantic==2.13.5           # Data validation
 pydantic-settings==2.14.2  # Settings management
 
 # Data Processing
@@ -12,8 +12,8 @@ pandas==3.0.5             # Data manipulation
 numpy==1.26.4             # Numerical computing
 
 # Portfolio Optimization
-scipy==1.17.1             # Scientific computing and optimization algorithms
-cvxpy==1.7.5              # Convex optimization
+scipy==1.18.1             # Scientific computing and optimization algorithms
+cvxpy==1.9.2              # Convex optimization
 scikit-learn>=1.9.0       # Machine learning (for covariance shrinkage)
 
 # Database
@@ -32,17 +32,17 @@ httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
+python-json-logger==4.2.0 # Structured logging
 
 # Scheduling
 apscheduler==3.11.3       # Background task scheduling for daily snapshots
 
 # Reporting
 matplotlib==3.11.1         # Chart generation for reports
-plotly==6.9.0            # Interactive charts
+plotly==7.0.0            # Interactive charts
 
 # Utilities
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 python-dateutil==2.9.0.post0    # Date utilities
 
 # Testing
@@ -54,6 +54,6 @@ freezegun==1.5.5          # Time mocking
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
 flake8==7.3.0             # Linter

@@ -3,15 +3,15 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.13.4           # Data validation
+uvicorn[standard]==0.52.4 # ASGI server
+pydantic==2.13.5           # Data validation
 pydantic-settings==2.14.2  # Settings management
 
 # Data Processing
 pandas==3.0.5             # Data manipulation
 numpy==1.26.4             # Numerical computing
-scipy==1.17.1             # Scientific computing (for statistical tests)
-statsmodels==0.14.6       # Statistical analysis (ADF, cointegration tests)
+scipy==1.18.1             # Scientific computing (for statistical tests)
+statsmodels==0.15.0       # Statistical analysis (ADF, cointegration tests)
 
 # Model artifact loader (lightweight)
 joblib==1.5.3
@@ -42,15 +42,15 @@ aiohttp==3.14.3            # Async HTTP client (for notification service)
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
-sentry-sdk==2.68.0        # Error tracking
+python-json-logger==4.2.0 # Structured logging
+sentry-sdk==2.68.1        # Error tracking
 
 # Utilities
 pyjwt[crypto]>=2.13.0     # app/exchanges/coinbase.py signs ES256 JWTs at module import;
                           # app/exchanges/__init__.py imports it unconditionally, so the
                           # whole exchanges package (incl. bybit_adapter) fails to import
                           # without this. [crypto] extra is required for ES256.
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 python-dateutil==2.9.0.post0    # Date utilities
 schedule==1.2.2           # Task scheduling
 
@@ -60,7 +60,7 @@ pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
 pytest-mock==3.15.1       # Mocking
 pytest-timeout==2.4.0     # Test timeouts
-aiosqlite==0.21.0         # Async SQLite driver; tests/unit/test_repositories.py
+aiosqlite==0.22.1         # Async SQLite driver; tests/unit/test_repositories.py
                           # and tests/risk/test_kelly_persistence.py build an
                           # in-memory sqlite+aiosqlite engine
 freezegun==1.5.5          # Time mocking
@@ -68,7 +68,7 @@ respx==0.23.1             # HTTP mocking for integration tests (>=0.21 needed fo
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
 flake8==7.3.0             # Linter
 flake8-bugbear==25.11.29   # Additional flake8 checks

@@ -2,10 +2,10 @@
 
 # FastAPI and server
 fastapi==0.141.1
-uvicorn[standard]==0.52.3
-pydantic==2.13.4
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
 pydantic-settings==2.14.2
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 
 # HTTP client for Telegram/Slack
 httpx==0.28.1
@@ -13,7 +13,7 @@ httpx==0.28.1
 # Email support - using stdlib smtplib, no additional packages needed
 
 # Logging
-python-json-logger==4.1.0
+python-json-logger==4.2.0
 
 # Prometheus metrics (used by app/main.py)
 prometheus-client==0.26.0
