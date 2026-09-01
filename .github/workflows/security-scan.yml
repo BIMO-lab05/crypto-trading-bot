@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # continue-on-error is scoped to sentiment-analysis-service ONLY, whose
       # PyPI timeouts are chronic (CLAUDE.md gotchas). It used to apply to all
