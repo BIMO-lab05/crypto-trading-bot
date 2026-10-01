@@ -3,20 +3,20 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.13.4           # Data validation
+uvicorn[standard]==0.54.0 # ASGI server
+pydantic==2.13.5           # Data validation
 pydantic-settings==2.14.2  # Settings management
 
 # Data Processing
-pandas==3.0.5             # Data manipulation and analysis
+pandas==3.0.6             # Data manipulation and analysis
 numpy==1.26.4             # Numerical computing
 pyarrow==25.0.1           # Columnar data format (Parquet support)
 
 # Database Clients
 asyncpg==0.31.0           # Async PostgreSQL/TimescaleDB driver
-psycopg2-binary==2.9.12    # Sync PostgreSQL driver (fallback)
-sqlalchemy==2.0.52        # ORM and query builder
-alembic==1.19.1           # Database migrations
+psycopg2-binary==2.9.13    # Sync PostgreSQL driver (fallback)
+sqlalchemy==2.1.1        # ORM and query builder
+alembic==1.20.0           # Database migrations
 
 # Caching & Messaging
 aioredis==2.0.1           # Async Redis client
@@ -24,34 +24,34 @@ redis==5.3.1              # Sync Redis client
 pika==1.4.4               # RabbitMQ client
 
 # WebSocket & HTTP
-websockets==17.0.1          # WebSocket client
+websockets==17.1          # WebSocket client
 httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
+python-json-logger==4.2.0 # Structured logging
 
 # Rate Limiting
 slowapi==0.1.10            # Rate limiting for FastAPI
 limits==5.8.0             # Rate limiting backend
 
 # Utilities
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 python-dateutil==2.9.0.post0    # Date/time utilities
-pytz==2026.3.post1              # Timezone handling
+pytz==2026.4              # Timezone handling
 
 # Testing
 pytest==9.1.1             # Testing framework
 pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
-pytest-mock==3.15.1       # Mocking
+pytest-mock==3.16.0       # Mocking
 freezegun==1.5.5          # Time mocking
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
-flake8==7.3.0             # Linter
+flake8==7.4.1             # Linter
 
 # Circuit Breaker & Retry Logic
 tenacity==9.1.4           # Retry and circuit breaker

@@ -3,24 +3,24 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic==2.13.4           # Data validation
+uvicorn[standard]==0.54.0 # ASGI server
+pydantic==2.13.5           # Data validation
 pydantic-settings==2.14.2  # Settings management
 
 # Data Processing
-pandas==3.0.5             # Data manipulation
+pandas==3.0.6             # Data manipulation
 numpy==1.26.4             # Numerical computing
 
 # Portfolio Optimization
-scipy==1.17.1             # Scientific computing and optimization algorithms
-cvxpy==1.7.5              # Convex optimization
-scikit-learn>=1.9.0       # Machine learning (for covariance shrinkage)
+scipy==1.18.1             # Scientific computing and optimization algorithms
+cvxpy==1.9.3              # Convex optimization
+scikit-learn>=1.9.1       # Machine learning (for covariance shrinkage)
 
 # Database
 asyncpg==0.31.0           # Async PostgreSQL driver
-psycopg2-binary==2.9.12    # Sync PostgreSQL driver (for shared database module)
-sqlalchemy==2.0.52        # ORM
-alembic==1.19.1           # Migrations
+psycopg2-binary==2.9.13    # Sync PostgreSQL driver (for shared database module)
+sqlalchemy==2.1.1        # ORM
+alembic==1.20.0           # Migrations
 
 # Caching & Messaging
 aioredis==2.0.1           # Redis client
@@ -32,28 +32,28 @@ httpx==0.28.1             # HTTP client
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
+python-json-logger==4.2.0 # Structured logging
 
 # Scheduling
 apscheduler==3.11.3       # Background task scheduling for daily snapshots
 
 # Reporting
-matplotlib==3.11.1         # Chart generation for reports
-plotly==6.9.0            # Interactive charts
+matplotlib==3.11.2         # Chart generation for reports
+plotly==7.1.0            # Interactive charts
 
 # Utilities
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 python-dateutil==2.9.0.post0    # Date utilities
 
 # Testing
 pytest==9.1.1             # Testing framework
 pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
-pytest-mock==3.15.1       # Mocking
+pytest-mock==3.16.0       # Mocking
 freezegun==1.5.5          # Time mocking
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
-flake8==7.3.0             # Linter
+flake8==7.4.1             # Linter
