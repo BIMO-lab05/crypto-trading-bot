@@ -3,8 +3,8 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server with auto-reload
-pydantic==2.13.4           # Data validation and settings
+uvicorn[standard]==0.54.0 # ASGI server with auto-reload
+pydantic==2.13.5           # Data validation and settings
 pydantic-settings==2.14.2  # Environment-based configuration
 
 # Bybit SDK
@@ -12,7 +12,7 @@ pybit==5.17.0              # Official Bybit Python SDK
 
 # HTTP Client
 httpx==0.28.1             # Async HTTP client for REST calls
-websockets==17.0.1          # WebSocket client for real-time data
+websockets==17.1          # WebSocket client for real-time data
 
 # Resilience & Reliability
 tenacity==9.1.4           # Retry logic with exponential backoff
@@ -24,10 +24,10 @@ limits==5.8.0             # Rate limiting backend
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics for monitoring
-python-json-logger==4.1.0 # Structured JSON logging
+python-json-logger==4.2.0 # Structured JSON logging
 
 # Utilities
-python-dotenv==1.2.2      # Environment variable management
+python-dotenv==1.2.3      # Environment variable management
 aioredis==2.0.1           # Async Redis client for caching
 pika==1.4.4               # RabbitMQ client for messaging
 
@@ -35,12 +35,12 @@ pika==1.4.4               # RabbitMQ client for messaging
 pytest==9.1.1             # Testing framework
 pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Code coverage
-pytest-mock==3.15.1       # Mocking support
+pytest-mock==3.16.0       # Mocking support
 pytest-httpx==0.36.2         # HTTP mock for testing
 freezegun==1.5.5          # Time mocking for tests
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Static type checker
-flake8==7.3.0             # Linter
+flake8==7.4.1             # Linter

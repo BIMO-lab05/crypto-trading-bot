@@ -6,16 +6,16 @@
 
 # Web Framework
 fastapi==0.141.1          # Modern async web framework
-uvicorn[standard]==0.52.3 # ASGI server
-pydantic[email]==2.13.4   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
+uvicorn[standard]==0.54.0 # ASGI server
+pydantic[email]==2.13.5   # Data validation; cp314 wheels (was 2.5.3 -> pydantic-core 2.14.6, no cp314)
 pydantic-settings==2.14.2 # Settings management (compat with pydantic 2.13)
 email-validator==2.3.0    # Email validation for pydantic (2.1.0 was yanked)
 starlette==1.6.0         # ASGI framework (security headers middleware); pinned to fastapi 0.141.1 range
 
 # Authentication & Security
-pyjwt[crypto]>=2.13.0     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
+pyjwt[crypto]>=2.15.0     # JWT token handling (replaces unmaintained python-jose; cp314 compatible)
 python-jose[cryptography]>=3.5.0  # Temporary pin — auth_models.py still imports `from jose`; remove after migration to pyjwt API
-cryptography>=50.0.0      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
+cryptography>=50.0.1      # Pinned for cp314 wheels; pyjwt[crypto] extra also depends on it
 libpass[bcrypt]==1.9.3    # passlib successor (drop-in `passlib` namespace); fixes bcrypt 5.0 ValueError on detect_wrap_bug check
 python-multipart==0.0.32   # Form data support
 bcrypt==5.0.0             # Password hashing backend; cp314 wheels start at 5.0.0
@@ -36,7 +36,7 @@ httpx==0.28.1             # HTTP client for routing (compatible with pytest-http
 
 # Database (for auth tokens/sessions)
 asyncpg==0.31.0           # Async PostgreSQL driver; cp314 wheels start at 0.31.0
-sqlalchemy==2.0.52        # ORM; <2.0.45 fails on Py3.14 (TypingOnly assertion vs PEP 749 __static_attributes__)
+sqlalchemy==2.1.1        # ORM; <2.0.45 fails on Py3.14 (TypingOnly assertion vs PEP 749 __static_attributes__)
 aioredis==2.0.1           # Redis for sessions
 
 # Caching & Rate Limit Storage
@@ -45,21 +45,21 @@ redis==5.3.1              # Redis client (used by slowapi for distributed rate l
 
 # Monitoring & Logging
 prometheus-client==0.26.0 # Metrics
-python-json-logger==4.1.0 # Structured logging
-sentry-sdk==2.68.0        # Error tracking
+python-json-logger==4.2.0 # Structured logging
+sentry-sdk==2.70.0        # Error tracking
 
 # Utilities
-python-dotenv==1.2.2      # Environment variables
+python-dotenv==1.2.3      # Environment variables
 
 # Testing
 pytest==9.1.1             # Testing framework
 pytest-asyncio==1.4.0    # Async test support
 pytest-cov==7.1.0         # Coverage
-pytest-mock==3.15.1       # Mocking
+pytest-mock==3.16.0       # Mocking
 pytest-httpx==0.36.2      # HTTP mocking (httpx-mock renamed)
 
 # Development
 black==26.5.1             # Code formatter
-isort==8.0.1             # Import sorter
+isort==9.0.1             # Import sorter
 mypy==2.3.1               # Type checker
-flake8==7.3.0             # Linter
+flake8==7.4.1             # Linter

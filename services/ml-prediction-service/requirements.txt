@@ -2,20 +2,20 @@
 
 # Web framework
 fastapi==0.141.1
-uvicorn[standard]==0.52.3
-pydantic==2.13.4
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
 pydantic-settings==2.14.2
 httpx==0.28.1
 
 # Machine Learning
 tensorflow==2.21.0
-scikit-learn==1.9.0
+scikit-learn==1.9.1
 numpy==1.26.4
-pandas==3.0.5
+pandas==3.0.6
 
 # Hyperparameter Optimization
-optuna==4.9.0  # Bayesian optimization framework
-optuna-dashboard==0.20.0  # Optional: visualization dashboard
+optuna==5.0.0  # Bayesian optimization framework
+optuna-dashboard==0.21.0  # Optional: visualization dashboard
 
 # Database
 asyncpg==0.31.0  # PostgreSQL/TimescaleDB async driver
@@ -35,5 +35,5 @@ prometheus-client==0.26.0  # Prometheus metrics
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-pytest-mock==3.15.1
+pytest-mock==3.16.0
 respx==0.23.1  # HTTP mocking for httpx
